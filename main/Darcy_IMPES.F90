@@ -45,7 +45,7 @@ program Darcy_IMPES
    use state_module
   
 
-   use sparse_tools_petsc	
+   use sparse_tools_petsc
    use AuxilaryOptions
    use MeshDiagnostics
    use signal_vars
@@ -102,7 +102,12 @@ program Darcy_IMPES
      
    ! *** Use Darcy IMPES module ***
    use darcy_impes_assemble_module
-      
+   
+   !use Leaching chemical model***Lcai***04 July 2014****
+   use darcy_impes_leaching_chemical_model
+   use darcy_impes_assemble_type
+
+
    implicit none
 
 #ifdef HAVE_PETSC
@@ -570,6 +575,11 @@ program Darcy_IMPES
       end if
    end if
    
+   !****07 July 2014 Lcai****Deallocate Leaching Chemical model******!
+   if (di%lc%have_leach_chem_model) then
+     call finalize_leaching_chemical_model(di)
+   end if
+
    ! ***** Finalise dual permeability model *****
    if (have_dual) then
       call darcy_impes_finalise(di_dual, &
@@ -786,6 +796,7 @@ contains
       call allocate(di%cv_mass_pressure_mesh_with_porosity, di%pressure_mesh)
       call allocate(di%cv_mass_pressure_mesh_with_old_porosity, di%pressure_mesh)
       call allocate(di%inverse_cv_sa_pressure_mesh, di%pressure_mesh)
+      call allocate(di%work_array_of_size_pressure_mesh, di%pressure_mesh)
       
       if (have_dual) then
          call allocate(di%cv_mass_pressure_mesh_with_lambda_dual, di%pressure_mesh)
@@ -854,7 +865,6 @@ contains
       if (have_dual) then
          allocate(di%transmissibility_lambda_dual(di%number_phase))
       end if
-
       do p = 1,di%number_phase
 
          di%pressure(p)%ptr                   => extract_scalar_field(di%state(p), "Pressure")
@@ -870,7 +880,7 @@ contains
             
            !*****************************LCai 24 July 2013******************!
           di%MIM_options%immobile_saturation(p)%ptr  => extract_scalar_field(di%state(p), "ImmobileSaturation", stat = stat)
-          if (stat == 0) then
+          if ((stat == 0) .and. (.not. this_is_dual)) then
                di%MIM_options%have_MIM(p) = .true.
                di%MIM_options%old_immobile_saturation(p)%ptr  => extract_scalar_field(di%state(p), "OldImmobileSaturation")
                di%MIM_options%mobile_saturation(p)%ptr        => extract_scalar_field(di%state(p), "MobileSaturation")
@@ -881,7 +891,7 @@ contains
                di%MIM_options%mobile_saturation(p)%ptr    => di%constant_zero_sfield_pmesh
                di%MIM_options%old_immobile_saturation(p)%ptr  => di%constant_zero_sfield_pmesh
                di%MIM_options%old_mobile_saturation(p)%ptr    => di%constant_zero_sfield_pmesh
-            end if
+          end if
            !**********Fisnish**************LCai ****************************!
  
          else
@@ -890,7 +900,7 @@ contains
             di%capilliary_pressure(p)%ptr     => di%constant_zero_sfield_pmesh
             
             !*******************LCai 24 July & 08 Aug 2013******************!
-             ! Cannot have MIM for phase 1
+             ! Cannot have MIM for phase 1 and dual phase
              di%MIM_options%have_MIM(p) = .false.
              di%MIM_options%immobile_saturation(p)%ptr  => di%constant_zero_sfield_pmesh
              di%MIM_options%mobile_saturation(p)%ptr    => di%constant_zero_sfield_pmesh
@@ -1100,7 +1110,6 @@ contains
                  call get_option('/material_phase['//int2str(p-1)//']/MobileImmobileModel/scalar_field['//int2str(f-1)//']/name', &
                                   tmp_char_option)
 
-                 !***NOT**USED**di%MIM_options%have_immobile_prog_sfield(p)= .true.
 
                  di%MIM_options%immobile_prog_sfield(im_count)%phase = p
                    
@@ -1626,6 +1635,21 @@ contains
       ! Initialise the arrays used to cache the face values
       call darcy_impes_initialise_cached_face_value(di)
       
+
+      !*******04 July 2014 Lcai*Leaching chemical model*************!
+      !Initialise the Leaching chemical model
+      if (have_option('/Leaching_Chemical_Model')) then
+
+        di%lc%have_leach_chem_model= .true.
+        call initialize_leaching_chemical_model(di)
+
+      else
+
+        di%lc%have_leach_chem_model= .false.
+
+      end if
+      !********finish*******leaching chemistry model**************!
+
       ! If the first phase saturation is diagnostic then calculate it
       if (di%phase_one_saturation_diagnostic) call darcy_impes_calculate_phase_one_saturation_diagnostic(di)
       
@@ -1872,6 +1896,7 @@ contains
       call deallocate(di%cv_mass_pressure_mesh_with_porosity)
       call deallocate(di%cv_mass_pressure_mesh_with_old_porosity)
       call deallocate(di%inverse_cv_sa_pressure_mesh)
+      call deallocate(di%work_array_of_size_pressure_mesh)
       
       if (have_dual) then
          call deallocate(di%cv_mass_pressure_mesh_with_lambda_dual)
@@ -2229,8 +2254,17 @@ contains
          call set_option("/timestepping/timestep", dt)
       end if
       
-      ! *** Constrain the timestep such that the current time will not overshoot the finish time ***     
-      if (dt + current_time > finish_time ) then
+      ! Constrain the timestep such that the current time will not overshoot the
+      ! finish time.  But spread this operation over two timesteps so as not to
+      ! end up with a very small time step.  Neglecting to do this may cause
+      ! subtle divide-by-huge-number bugs.
+      if ( (current_time + 2*dt > finish_time) .and. (current_time + dt < finish_time) ) then
+         ! penultimate time step
+         ewrite(1,*) 'Constrain timestep size such as to not overshoot the finish time nor end up too small'
+         dt = 0.5*(finish_time - current_time) + epsilon(0.0)
+         ewrite(1,*) 'Constrained timestep size: ',dt
+      else if ( current_time + dt > finish_time ) then
+         ! last time step
          ewrite(1,*) 'Constrain timestep size such as to not overshoot the finish time'
          dt = finish_time - current_time + epsilon(0.0)
          ewrite(1,*) 'Constrained timestep size: ',dt
@@ -2312,6 +2346,12 @@ contains
          call darcy_impes_calculate_relperm_den_first_face_values(di)
          if (have_dual) call darcy_impes_calculate_relperm_den_first_face_values(di_dual)
          
+         !*********11 Aug 2014 *****Lcai ******leaching chemical model************!
+         !calculate the chemical reactions explicitly based on concentrations of the previous time step
+         !before calculating the prognostic scalar fields
+         call calculate_leaching_chemical_model(di)
+         !*********finish****Lcai********Leaching chemical model
+
          ! *** Solve the Darcy equations using IMPES in three parts ***
          call darcy_impes_assemble_and_solve_part_one(di, have_dual)
          if (have_dual) call darcy_impes_assemble_and_solve_part_one(di_dual, have_dual)
@@ -2540,3 +2580,6 @@ contains
 ! --------------------------------------------------------------------------------
 
 end program Darcy_IMPES
+!    Copyright (C) 2006 Imperial College London and others.
+!
+!    Please see the AUTHORS file in the main source directory for a full list
