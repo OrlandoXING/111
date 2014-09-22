@@ -1530,7 +1530,7 @@ contains
                  case("Ferrous_Oxidation")
                     prefix="feox_"
                  case('Jarosite_Precipitation')
-                    prefix="jaro_"
+                    prefix="Jarosite_"
                  case('Oxygen_dissolution')
                     prefix="oxdi_"
                  case default
@@ -1548,7 +1548,16 @@ contains
                                 dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
     
               end do
-           end do
+   
+              if (have_option(trim(reaction_path)//'/rate_constant_Arrhenius')) then          
+                 !get the prefactor of the reaction rate
+                 path=trim(reaction_path)//'/rate_constant_Arrhenius/scalar_field::prefactor'
+                 field_name=trim(prefix)//'prefactor'
+                 
+                 call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
+                                dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+              end if
+           end do           
          end if
 
          !--------For mineral dissolution
@@ -1584,9 +1593,20 @@ contains
                 call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
                                 dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)    
               end do
+              
+              if (have_option(trim(reaction_path)//'/rate_constant_Arrhenius')) then          
+                 !get the prefactor of the reaction rate
+                 path=trim(reaction_path)//'/rate_constant_Arrhenius/scalar_field::prefactor'
+                 field_name=trim(prefix)//'prefactor'
+                 
+                 call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
+                                dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+              end if
+              
            end do
          end if
      end subroutine allocate_and_insert_leaching_model
+     
 
     !********Finish****lcai***Leaching********************************!
 
@@ -1839,6 +1859,97 @@ contains
        end if
        
     end if have_porous_media_dual
+    
+    !------------Leaching Chemical model----Lcai-------------------------!
+    !soulution phase reactions
+    if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then
+           path='/Leaching_chemical_model/SolutionPhaseReactions'
+           nstates=option_count(trim(path)//"/reaction") !nstates for reaction
+    
+           do i=0, nstates-1
+              path='/Leaching_chemical_model/SolutionPhaseReactions'
+              call get_option(trim(path)//"/reaction["//int2str(i)//"]/name", field_name) !field_name for reaction name
+              path=trim(path)//"/reaction::"//trim(field_name)
+           
+             select case(trim(field_name))
+                 case("Ferrous_Oxidation")
+                    field_name="feox_"
+                 case('Jarosite_Precipitation')
+                    field_name="Jarosite_"
+                 case('Oxygen_dissolution')
+                    field_name="oxdi_"
+             end select
+    
+             nfields=option_count(trim(path)//"/scalar_field")
+             do j=0, nfields-1
+                call get_option(trim(path)//"/scalar_field["//int2str(j)//"]/name", aliased_field_name)
+                aliased_field_name=trim(field_name)//trim(aliased_field_name)
+    
+                ! alias field and insert to phase 2
+                sfield=extract_scalar_field(states(1), trim(aliased_field_name))
+                sfield%aliased = .true.
+                call insert(states(2), sfield, trim(aliased_field_name))
+
+    
+             end do
+   
+             if (have_option(trim(path)//'/rate_constant_Arrhenius')) then          
+                 !get the prefactor of the reaction rate
+                 aliased_field_name=trim(field_name)//'prefactor'
+                 
+                 ! alias field and insert to phase 2
+                 sfield=extract_scalar_field(states(1), trim(aliased_field_name))
+                 sfield%aliased = .true.
+                 call insert(states(2), sfield, trim(aliased_field_name))
+             end if
+           end do           
+      end if
+      
+      !----mineral dissolution reactions
+      if (have_option('/Leaching_chemical_model/MineralDissolution')) then
+           path='/Leaching_chemical_model/MineralDissolution'
+           nstates=option_count(trim(path)//"/reaction")
+           
+           do i=0, nstates-1
+              path='/Leaching_chemical_model/MineralDissolution'
+              call get_option(trim(path)//"/reaction["//int2str(i)//"]/name", field_name)
+              path=trim(path)//"/reaction::"//trim(field_name)
+              
+              select case(trim(field_name))
+                 case("CuFeS2_oxidation_aqueous_ferric_sulfate")
+                    field_name="chal_"
+                 case('FeS2_oxidation_aqueous_ferric_sulfate')
+                    field_name="pyri_"
+                 case('S0_dissolution')
+                    field_name="sulf_"
+
+              end select
+              
+              nfields=option_count(trim(path)//"/scalar_field")
+              
+              do j=0, nfields-1
+                call get_option(trim(path)//"/scalar_field["//int2str(j)//"]/name", aliased_field_name)         
+                aliased_field_name=trim(field_name)//trim(aliased_field_name)
+    
+                ! alias field and insert to phase 2
+                sfield=extract_scalar_field(states(1), trim(aliased_field_name))
+                sfield%aliased = .true.
+                call insert(states(2), sfield, trim(aliased_field_name))    
+              end do
+              
+              if (have_option(trim(path)//'/rate_constant_Arrhenius')) then          
+                 !get the prefactor of the reaction rate
+                 aliased_field_name=trim(field_name)//'prefactor'
+                 
+                 ! alias field and insert to phase 2
+                 sfield=extract_scalar_field(states(1), trim(aliased_field_name))
+                 sfield%aliased = .true.
+                 call insert(states(2), sfield, trim(aliased_field_name))
+              end if
+              
+           end do
+         end if
+    !-------------------Leaching Chemical model-finished------------------!
 
   end subroutine alias_fields
 

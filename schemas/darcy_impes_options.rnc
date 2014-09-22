@@ -2625,7 +2625,14 @@ darcy_impes_leaching_solution_phase_prog_src =
                              ##realtive to the gas phase O2
                              mesh_choice_pressure,
                              darcy_impes_internal_algorithm,
-                             darcy_impes_chemical_stoichiometric_factor,
+                             (
+                               element stoichiometric_factor {
+                                   element real_value { 
+                                          attribute rank { "0" },
+                                              ("1.0")
+                                           }           
+                               }
+                             ),
                              darcy_impes_diagnostic_scalar_field,
                              darcy_impes_recalculation_options?
                              }
@@ -2639,7 +2646,14 @@ darcy_impes_leaching_solution_phase_prog_src =
                              ##realtive to the gas phase O2
                              mesh_choice_pressure,
                              darcy_impes_internal_algorithm,
-                             darcy_impes_chemical_stoichiometric_factor,
+                             (
+                               element stoichiometric_factor {
+                                   element real_value { 
+                                          attribute rank { "0" },
+                                              ("1.0")
+                                           }           
+                               }
+                             ),
                              darcy_impes_diagnostic_scalar_field,
                              darcy_impes_recalculation_options?
                              }
@@ -2701,7 +2715,6 @@ darcy_impes_chemical_stoichiometric_factor =
    (
      ##The stoichiometric factor of this species according to the reaction equation
      element stoichiometric_factor {
-             ##The stoichiometric factor of this species according to the reaction equation
              real
              }
      )
@@ -2836,17 +2849,31 @@ rate_constant =
    (
     ##This is the option for the bulk chemical condition constant
     ##which is calculated from bulk concentrations, PH, temperatures, etc 
-       (    
+       (  
+       ##The reaction rate constant k is calculated by Arrhenius equation
+        ##while in our semi-empirical model, the pre-factor of Arrhenius equation
+         ##is neglectable  
            element rate_constant_Arrhenius {
-                        ##The reaction rate constant k is calculated by Arrhenius equation
-                        ##while in our semi-empirical model, the pre-factor of Arrhenius equation
-                        ##is neglectable
-                     element activation_energy {
-                             ##this is the activation_energy in Arrhenius equation, J/mol
-                             real },
-                     element gas_constant {
-                             ##this is the gas constant in Arrhenius equation, J/(K mol)
+                     (
+                       ##the pre-factor of Arrhenius equation
+                       ##while in our semi-empirical model, it is neglegible
+                       element scalar_field {
+                           attribute rank { "0" },
+                           attribute name {"prefactor"},
+                           leaching_scalar_field_prescribed_or_python_diagnostic_pressure_mesh
+                           }
+                             ), 
+                        
+                     (
+                     ##this is the activation_energy in Arrhenius equation, J/mol   
+                     element activation_energy {                             
                              real }
+                             ),
+                     (
+                      ##this is the gas constant in Arrhenius equation, J/(K mol)        
+                     element gas_constant {                             
+                             real }
+                             )
                          }
                    ),
            element bulk_fluid_conditions {
@@ -2892,7 +2919,7 @@ leaching_solution_phase_options =
     (
      ##This is the option for solution phase reaction
      element SolutionPhaseReactions {
-             (
+             ( 
                  element reaction{
                  attribute name {"Ferrous_Oxidation"},
                  ##Ferrous oxidation by H+
@@ -2910,12 +2937,14 @@ leaching_solution_phase_options =
                               },   
                  rate_constant     
                  }|
+               
 
                  element reaction{
                       attribute name {"Jarosite_Precipitation"},
-                      element scalar_field {
-                               ##This is precipitation rate of jarosite M+
-                               ##mole/s per m^3 of heap of jarosite
+                    (
+                      ##This is precipitation rate of Fe3+ by jarosite
+                      ##mole/s per m^3 of heap
+                      element scalar_field {                               
                                attribute rank { "0" },
                                attribute name {"dM_dt"},
                                element diagnostic {
@@ -2925,10 +2954,36 @@ leaching_solution_phase_options =
                                           darcy_impes_recalculation_options?
                                       }
                               }
-                   }|
-                 
+                           ),
+                     (
+                      ##The molar concentration of jarosite,
+                      ##mole per m^3 of liquid solution
+                      element scalar_field {                               
+                               attribute rank { "0" },
+                               attribute name {"molar_concentration"},
+                               element diagnostic {
+                                          mesh_choice_pressure,
+                                          darcy_impes_internal_algorithm,
+                                          darcy_impes_diagnostic_scalar_field,
+                                          darcy_impes_recalculation_options?
+                                      }
+                              }
+                           ),
+                      
+                   (
+                    ##The scalar filed name for H+ in Phase 2 used to calculate pH
+                      element H_name {string }
+                   ),
+
+                  (
+                    ##The scalar filed name for Fe3 in Phase 2 used to calculate jarosite precipitation
+                      element Fe3_name {string}
+                       )
+                   }|            
+                
                  element reaction{
                       attribute name {"Oxygen_dissolution"},
+                    (
                       element scalar_field {
                                ##This is the concentraction change rate of oxygen dissolution
                                ##change of the O2 in mol/m^3_heap/s of gas phase
@@ -2941,7 +2996,18 @@ leaching_solution_phase_options =
                                           darcy_impes_recalculation_options?
                                       }
                               }
+                          ),
+                       (    
+                    ##The scalar filed name for gas phase oxygen in Phase 1
+                      element og_name {string }   
+                   ),   
+
+                  (    
+                    ##The scalar filed name for liquid phase oxygen in Phase 2
+                      element o2_name {string }    
+                       )   
                    } 
+                 
                )* 
             }?
  )

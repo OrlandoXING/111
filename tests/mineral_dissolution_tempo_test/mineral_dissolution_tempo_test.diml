@@ -901,6 +901,20 @@ for n in range(field.node_count):
           </empirical_extraction_rate_over_k>
         </experiment_data>
         <rate_constant_Arrhenius>
+          <scalar_field name="prefactor" rank="0">
+            <prescribed>
+              <mesh name="PressureMesh"/>
+              <value name="WholeMesh">
+                <constant>
+                  <real_value rank="0">1.0</real_value>
+                </constant>
+              </value>
+              <output/>
+              <stat>
+                <include_in_stat/>
+              </stat>
+            </prescribed>
+          </scalar_field>
           <activation_energy>
             <real_value rank="0">-48100.0</real_value>
           </activation_energy>
@@ -987,6 +1001,20 @@ for n in range(field.node_count):
           </empirical_extraction_rate_over_k>
         </experiment_data>
         <rate_constant_Arrhenius>
+          <scalar_field name="prefactor" rank="0">
+            <prescribed>
+              <mesh name="PressureMesh"/>
+              <value name="WholeMesh">
+                <constant>
+                  <real_value rank="0">1.0</real_value>
+                </constant>
+              </value>
+              <output/>
+              <stat>
+                <include_in_stat/>
+              </stat>
+            </prescribed>
+          </scalar_field>
           <activation_energy>
             <real_value rank="0">-50000.0</real_value>
           </activation_energy>
@@ -1022,19 +1050,18 @@ for n in range(field.node_count):
   </Leaching_chemical_model>
   <porous_media>
     <scalar_field name="Porosity">
-      <prescribed>
+      <diagnostic>
         <mesh name="ElementWiseMesh"/>
-        <value name="WholeMesh">
-          <constant>
-            <real_value rank="0">0.400488031</real_value>
-          </constant>
-        </value>
+        <algorithm name="scalar_python_diagnostic" material_phase_support="single">
+          <string_value lines="20" type="code" language="python">for n in range(field.node_count):
+  field.set(n,0.400488031)</string_value>
+        </algorithm>
         <output/>
         <stat>
-          <exclude_from_stat/>
-          <include_cv_stats/>
+          <include_in_stat/>
         </stat>
-      </prescribed>
+        <consistent_interpolation/>
+      </diagnostic>
     </scalar_field>
     <scalar_field name="AbsolutePermeability">
       <prescribed>

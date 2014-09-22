@@ -2781,7 +2781,14 @@ please select the corresponding reactions</a:documentation>
 realtive to the gas phase O2</a:documentation>
               </ref>
               <ref name="darcy_impes_internal_algorithm"/>
-              <ref name="darcy_impes_chemical_stoichiometric_factor"/>
+              <element name="stoichiometric_factor">
+                <element name="real_value">
+                  <attribute name="rank">
+                    <value>0</value>
+                  </attribute>
+                  <value>1.0</value>
+                </element>
+              </element>
               <ref name="darcy_impes_diagnostic_scalar_field"/>
               <optional>
                 <ref name="darcy_impes_recalculation_options"/>
@@ -2801,7 +2808,14 @@ realtive to the gas phase O2</a:documentation>
 realtive to the gas phase O2</a:documentation>
               </ref>
               <ref name="darcy_impes_internal_algorithm"/>
-              <ref name="darcy_impes_chemical_stoichiometric_factor"/>
+              <element name="stoichiometric_factor">
+                <element name="real_value">
+                  <attribute name="rank">
+                    <value>0</value>
+                  </attribute>
+                  <value>1.0</value>
+                </element>
+              </element>
               <ref name="darcy_impes_diagnostic_scalar_field"/>
               <optional>
                 <ref name="darcy_impes_recalculation_options"/>
@@ -2878,9 +2892,7 @@ please select the corresponding reactions</a:documentation>
   <define name="darcy_impes_chemical_stoichiometric_factor">
     <element name="stoichiometric_factor">
       <a:documentation>The stoichiometric factor of this species according to the reaction equation</a:documentation>
-      <ref name="real">
-        <a:documentation>The stoichiometric factor of this species according to the reaction equation</a:documentation>
-      </ref>
+      <ref name="real"/>
     </element>
   </define>
   <define name="darcy_impes_Leaching_chemical_model_options">
@@ -3040,18 +3052,27 @@ i.e. mole per m^3  of heap</a:documentation>
       <a:documentation>This is the option for the bulk chemical condition constant
 which is calculated from bulk concentrations, PH, temperatures, etc </a:documentation>
       <element name="rate_constant_Arrhenius">
-        <element name="activation_energy">
-          <a:documentation>The reaction rate constant k is calculated by Arrhenius equation
+        <a:documentation>The reaction rate constant k is calculated by Arrhenius equation
 while in our semi-empirical model, the pre-factor of Arrhenius equation
-is neglectable</a:documentation>
-          <ref name="real">
-            <a:documentation>this is the activation_energy in Arrhenius equation, J/mol</a:documentation>
-          </ref>
+is neglectable  </a:documentation>
+        <element name="scalar_field">
+          <a:documentation>the pre-factor of Arrhenius equation
+while in our semi-empirical model, it is neglegible</a:documentation>
+          <attribute name="rank">
+            <value>0</value>
+          </attribute>
+          <attribute name="name">
+            <value>prefactor</value>
+          </attribute>
+          <ref name="leaching_scalar_field_prescribed_or_python_diagnostic_pressure_mesh"/>
+        </element>
+        <element name="activation_energy">
+          <a:documentation>this is the activation_energy in Arrhenius equation, J/mol   </a:documentation>
+          <ref name="real"/>
         </element>
         <element name="gas_constant">
-          <ref name="real">
-            <a:documentation>this is the gas constant in Arrhenius equation, J/(K mol)</a:documentation>
-          </ref>
+          <a:documentation>this is the gas constant in Arrhenius equation, J/(K mol)        </a:documentation>
+          <ref name="real"/>
         </element>
       </element>
     </group>
@@ -3127,9 +3148,9 @@ mole/s per m^3 of heap</a:documentation>
                 <value>Jarosite_Precipitation</value>
               </attribute>
               <element name="scalar_field">
+                <a:documentation>This is precipitation rate of Fe3+ by jarosite
+mole/s per m^3 of heap</a:documentation>
                 <attribute name="rank">
-                  <a:documentation>This is precipitation rate of jarosite M+
-mole/s per m^3 of heap of jarosite</a:documentation>
                   <value>0</value>
                 </attribute>
                 <attribute name="name">
@@ -3143,6 +3164,32 @@ mole/s per m^3 of heap of jarosite</a:documentation>
                     <ref name="darcy_impes_recalculation_options"/>
                   </optional>
                 </element>
+              </element>
+              <element name="scalar_field">
+                <a:documentation>The molar concentration of jarosite,
+mole per m^3 of liquid solution</a:documentation>
+                <attribute name="rank">
+                  <value>0</value>
+                </attribute>
+                <attribute name="name">
+                  <value>molar_concentration</value>
+                </attribute>
+                <element name="diagnostic">
+                  <ref name="mesh_choice_pressure"/>
+                  <ref name="darcy_impes_internal_algorithm"/>
+                  <ref name="darcy_impes_diagnostic_scalar_field"/>
+                  <optional>
+                    <ref name="darcy_impes_recalculation_options"/>
+                  </optional>
+                </element>
+              </element>
+              <element name="H_name">
+                <a:documentation>The scalar filed name for H+ in Phase 2 used to calculate pH</a:documentation>
+                <data type="string" datatypeLibrary=""/>
+              </element>
+              <element name="Fe3_name">
+                <a:documentation>The scalar filed name for Fe3 in Phase 2 used to calculate jarosite precipitation</a:documentation>
+                <data type="string" datatypeLibrary=""/>
               </element>
             </element>
             <element name="reaction">
@@ -3166,6 +3213,14 @@ change of the O2 in mol/m^3_heap/s of gas phase</a:documentation>
                     <ref name="darcy_impes_recalculation_options"/>
                   </optional>
                 </element>
+              </element>
+              <element name="og_name">
+                <a:documentation>The scalar filed name for gas phase oxygen in Phase 1</a:documentation>
+                <data type="string" datatypeLibrary=""/>
+              </element>
+              <element name="o2_name">
+                <a:documentation>The scalar filed name for liquid phase oxygen in Phase 2</a:documentation>
+                <data type="string" datatypeLibrary=""/>
               </element>
             </element>
           </choice>

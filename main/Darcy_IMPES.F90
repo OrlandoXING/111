@@ -459,15 +459,12 @@ program Darcy_IMPES
       
       ! *** Darcy IMPES evaluate pre solve system fields - BCs, prescribed fields and gravity ***
       call darcy_impes_evaluate_pre_solve_fields()
-      
-      
+           
       ! ****** 22 Aug 2013 ******** LCai********************************
       !calculate the porosity used to solve the Mobile-immobile model
-      if (size(di%MIM_options%immobile_prog_sfield) > 0) then
-
+      if (size(di%MIM_options%immobile_prog_sfield) > 0 .or. di%lc%have_leach_chem_model) then
            if (di%prt_is_constant) then
              di%porosity_cnt = ele_val(di%porosity, 1)
-
            else
              call zero(di%porosity_pmesh)
              ! then do galerkin projection to project the porosity on elementwise mesh to pressure mesh
@@ -482,10 +479,8 @@ program Darcy_IMPES
            end if
        end if
        ! ************Finish *** LCai **********************************
-       
       ! Solve the system of equations with a non linear iteration
       call darcy_impes_solve_system_of_equations_with_non_linear_iteration()
-      
       ! exit timestep loop if non linear iteration has not converged if required
       if(have_option("/timestepping/nonlinear_iterations/terminate_if_not_converged")) then
          if(its >= nonlinear_iterations_this_timestep .and. change >= abs(nonlinear_iteration_tolerance)) then
@@ -812,7 +807,7 @@ contains
       call zero(di%constant_zero_sfield_pmesh)
       
       ! Calculate the latest CV mass on the pressure mesh with porosity
-      call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_porosity, di%porosity)
+      !move to the place after calculate_diagnostic_variables_new **LCai*call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_porosity, di%porosity)
       
       ! Allocate phase flags for special fields
       allocate(di%have_capilliary_pressure(di%number_phase))
@@ -1071,14 +1066,13 @@ contains
         !If there exist the Immobile prog field in this phase, check wether the number of those fields equal to the generic prog sfield
         if (im_p > 0) then
           if ((im_p /= f_p).or.(im_p /= imsrc_p)) then
-            print *, "This is phase", p
             FLExit('The number of the immobile prognostic sfield should either be zero or equal to the generic prog sfield within this phase')
           end if
         end if
        ! *****************finish ***LCai *************************************
       end do 
       
-
+      
       ! ************ 09 & 16 Aug 2013 LCai ****************************************
       ! get the data associate with the prognostic immobile field
       allocate(di%MIM_options%immobile_prog_sfield(im_count))
@@ -1239,36 +1233,7 @@ contains
             end do 
 
          end do
-
-         ! ******* 22 Aug 2013 ****** LCai ***********************************
-         ! check that is the immobile prog sfield exist
-         ! if exist, then allocate the porosity used to calcalate MIM
-         !constant or projected to pmesh
-         if (size(di%MIM_options%immobile_prog_sfield) > 0) then
-
-           if (di%prt_is_constant) then
-             di%porosity_cnt = ele_val(di%porosity, 1)
-             
-           else
-             call allocate(di%porosity_pmesh, di%pressure_mesh)
-             call allocate(di%old_porosity_pmesh, di%pressure_mesh)
-             call zero(di%old_porosity_pmesh)
-             call zero(di%porosity_pmesh)
-             ! then do galerkin projection to project the porosity on elementwise mesh to pressure mesh
-             !note that this now only support the porosity which is originally based on dg elemernwise mesh
-             if (continuity(di%porosity) < 0) then !check wether the porosity is dg
-               do ele_prt=1,ele_count(di%porosity_pmesh)
-               call darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh(di%porosity_pmesh, di%porosity, di%positions, ele_prt)
-               end do
-               print *, di%porosity_pmesh%val
-             else
-               FLExit("the mesh of porosity should be elementwise dg")
-             end if
-           end if
-         end if
-
-         ! *********** Finish **********LCai *********************************
-
+    
          call allocate(di%sfield_bc_value, &
                        &di%bc_surface_mesh, &
                        &name='GenericPrognosticScalarField'//int2str(f-1)//'BCValue')         
@@ -1661,15 +1626,52 @@ contains
       
       ! Copy gradient pressure to iterated field
       call darcy_impes_copy_to_iterated(di)
-
+      
       ! calculate generic diagnostics - DO NOT ADD 'calculate_diagnostic_variables'
       call calculate_diagnostic_variables_new(all_state)
+      
+      ! ******* 22 Aug 2013 ****** LCai ***********************************
+      ! check that is the immobile prog sfield exist
+      ! if exist, then allocate the porosity used to calcalate MIM
+      !constant or projected to pmesh
+       if (size(di%MIM_options%immobile_prog_sfield) > 0 .or.&
+               have_option('/Leaching_chemical_model')) then   
+         if (di%prt_is_constant) then
+           di%porosity_cnt = ele_val(di%porosity, 1)
+             
+         else
+           call allocate(di%porosity_pmesh, di%pressure_mesh)
+           call allocate(di%old_porosity_pmesh, di%pressure_mesh)
+           call zero(di%old_porosity_pmesh)
+           call zero(di%porosity_pmesh)
+           ! then do galerkin projection to project the porosity on elementwise mesh to pressure mesh
+           !note that this now only support the porosity which is originally based on dg elemernwise mesh
+           if (continuity(di%porosity) < 0) then !check wether the porosity is dg
+              do ele_prt=1,ele_count(di%porosity_pmesh)
+              call darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh(di%porosity_pmesh, di%porosity, di%positions, ele_prt)
+              end do
+           else
+              FLExit("the mesh of porosity should be elementwise dg")
+           end if
+         end if
+       end if
+
+      ! *********** Finish **********LCai *********************************
+      
+      ! Calculate the latest CV mass on the pressure mesh with porosity
+      call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_porosity, di%porosity)
       
       !*********************26 July 2013 LCai*****************************!
       ! calculate the Mobile saturations if MIM is used
       if (di%MIM_options%have_MIM_phase) call darcy_trans_MIM_assemble_and_solve_mobile_saturation(di)
       
-      !*******Finish********26 July 2013 LCai*****************************!
+      !*********************27 Aug 2014 LCai*****************************!
+      !calculate the chemical reaction term at the beginning of the time step
+      if (di%lc%have_leach_chem_model) then
+         call calculate_leaching_chemical_model(di)
+      end if
+      !*******************Finish*LCai************************************!
+      
       
       
       ! Calculate the non first phase pressure's, needs to be after the python fields
@@ -1917,20 +1919,17 @@ contains
            nullify(di%MIM_options%immobile_prog_sfield(f)%old_sfield)
          end do
          call deallocate(di%MIM_options%MIM_src)
-         call deallocate(di%MIM_options%MIM_src_s)
-         
-         if (.not.(di%prt_is_constant)) then
-           call deallocate(di%porosity_pmesh)
-           call deallocate(di%old_porosity_pmesh)
-         end if
-
+         call deallocate(di%MIM_options%MIM_src_s)                  
        end if
        deallocate(di%MIM_options%immobile_prog_sfield) 
       ! ***** Finish **** LCai **************************** 
 
- 
+      if (.not.(di%prt_is_constant)) then 
+         di%prt_is_constant=.false.       
+         call deallocate(di%porosity_pmesh)
+         call deallocate(di%old_porosity_pmesh)
+      end if
       !*****************************LCai 25 July & 08 & 22 Aug 2013******************!
-      di%prt_is_constant= .false.
       ! Deallocate the MIM model
       di%MIM_options%have_mass_trans_coef = .false.
       !***NOT**USED**di%MIM_options%have_immobile_prog_sfield = .false.
@@ -2346,12 +2345,6 @@ contains
          call darcy_impes_calculate_relperm_den_first_face_values(di)
          if (have_dual) call darcy_impes_calculate_relperm_den_first_face_values(di_dual)
          
-         !*********11 Aug 2014 *****Lcai ******leaching chemical model************!
-         !calculate the chemical reactions explicitly based on concentrations of the previous time step
-         !before calculating the prognostic scalar fields
-         call calculate_leaching_chemical_model(di)
-         !*********finish****Lcai********Leaching chemical model
-
          ! *** Solve the Darcy equations using IMPES in three parts ***
          call darcy_impes_assemble_and_solve_part_one(di, have_dual)
          if (have_dual) call darcy_impes_assemble_and_solve_part_one(di_dual, have_dual)
@@ -2364,7 +2357,17 @@ contains
 
          call darcy_impes_assemble_and_solve_part_three(di, have_dual)
          if (have_dual) call darcy_impes_assemble_and_solve_part_three(di_dual, have_dual)
-          
+                 
+         
+         !*********11 Aug 2014 *****Lcai ******leaching chemical model************!
+         !the chemical reaction terms are calculated after the ADE is calculated
+         !and the chemical reaction terms of this time step are used as the explicit source terms in ADE of next time step
+         !As well as the equilibrium of oxygen dissolution is also calculated after the ADE is calculated
+         if (di%lc%have_leach_chem_model) then
+            call calculate_leaching_chemical_model(di)
+         end if
+         !*********finish****Lcai********Leaching chemical model
+         
          ! calculate generic diagnostics - DO NOT ADD 'calculate_diagnostic_variables'
          call calculate_diagnostic_variables_new(state, exclude_nonrecalculated = .true.)
          

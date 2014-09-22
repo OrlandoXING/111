@@ -14,7 +14,8 @@ module darcy_impes_leaching_types
 
   public :: leach_chemical_type, &
             leach_chemical_prog_sfield_src, &
-            leaching_semi_empirical_model_type
+            leaching_semi_empirical_model_type, &
+            leaching_arrhenius_reaction_type
 
   !!----Leaching chemical options-----------------------------------------------------------------------
     !options for the bulk fluid dependency of the rate constant
@@ -26,6 +27,7 @@ module darcy_impes_leaching_types
   
   !options for the rate constant, arrhenius type
   type arrhenius_rate_constant_type
+     type(scalar_field), pointer :: A !prefactor of the reaction
      real :: ae !activation energy
      real :: gc !gas constant
      type(bulk_fluid_type), dimension(:), allocatable :: bulk
@@ -51,11 +53,28 @@ module darcy_impes_leaching_types
      real, dimension(:), allocatable :: exp_ex, exp_exrk !experiment data
   end type leaching_semi_empirical_model_type
   
+  !jarocite precipitation
+  type leaching_internal_algorithm_jaro
+     !the name of the scalar field used to calculate pH and Fe3 concentration
+     character(len=FIELD_NAME_LEN) :: H_name 
+     character(len=FIELD_NAME_LEN) :: Fe3_name
+     type(scalar_field), pointer :: dcdt => null() !the change rate of concentration of Fe3+ per volume of heap
+     type(scalar_field), pointer :: js => null() !the molar concentration of jarosite per volume of solution
+  end type leaching_internal_algorithm_jaro
+
+  type leaching_internal_algorithm_oxdi
+     !the name of the scalar field used for gas phase oxygen and liquid phase oxygen 
+     character(len=FIELD_NAME_LEN) :: og_name !gas phase in phase 1
+     character(len=FIELD_NAME_LEN) :: o2_name !liquid phase in phase 2
+     type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
+  end type leaching_internal_algorithm_oxdi
+
+
   !options for leaching solution phase reaction
   type leaching_solution_phase_type
-     type(leaching_internal_algorithm_type):: jaro  !jarocite precipitation
-     type(leaching_internal_algorithm_type)::oxdi !oxygen dissolution
-     type(leaching_arrhenius_reaction_type)::feox !dissolution of chalcopyrite
+     type(leaching_internal_algorithm_jaro):: jaro  !jarocite precipitation
+     type(leaching_internal_algorithm_oxdi)::oxdi !oxygen dissolution
+     type(leaching_arrhenius_reaction_type)::feox !ferrous oxidation
   end type leaching_solution_phase_type
   
   !options for leaching mineral dissolution

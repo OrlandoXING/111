@@ -1852,7 +1852,7 @@ module darcy_impes_assemble_module
             
             call darcy_impes_calculate_relperm_isub_face_values(di, isub_index)
          end if
-       
+         
          phase_loop: do p = di%number_phase, 1, -1
             
             ewrite(1,*) 'Assemble and solve phase ',p

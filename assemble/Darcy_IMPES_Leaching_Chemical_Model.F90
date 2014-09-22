@@ -10,7 +10,6 @@ module darcy_impes_leaching_chemical_model
   use fldebug
   use field_options
   use spud
-  use fields_manipulation
   use data_structures
   use initialise_fields_module
   use global_parameters, only: OPTION_PATH_LEN
@@ -27,9 +26,7 @@ module darcy_impes_leaching_chemical_model
             add_leach_chemical_prog_src_to_rhs, &
             calculate_leaching_chemical_model
   
-
-  
-  
+       
   
   
   contains
@@ -46,7 +43,7 @@ module darcy_impes_leaching_chemical_model
      character(len=OPTION_PATH_LEN) :: option_path, reaction_name, path_l
         !---------------------allocate the fields in the chemical model-------------
         !for the solution phase reactions
-        if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then
+        if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then           
            di%lc%have_sol=.true.
            !allocate the solution phase reaction
            ns= option_count('/Leaching_chemical_model/SolutionPhaseReactions/reaction')
@@ -57,10 +54,17 @@ module darcy_impes_leaching_chemical_model
               select case(trim(reaction_name)) 
                 
                 case("Ferrous_Oxidation")
-                  di%lc%sol%feox%dcdt => extract_scalar_field(di%state(1), 'feox_dFe2_dt', stat=stat)
+                  di%lc%sol%feox%dcdt => extract_scalar_field(di%state(2), 'feox_dFe2_dt', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named feox_dFe2_dt')
                   end if
+
+                  !get the reaction frefactor
+                  di%lc%sol%feox%ak%A => extract_scalar_field(di%state(2), 'feox_prefactor', stat=stat)
+                  if (.not. stat==0) then
+                     FLAbort('failed to extract the leaching reaction named feox_prefactor')
+                  end if
+
                   !get activation energy
                   path_l = trim(option_path)//'::'//trim(reaction_name)
                   call get_option(trim(path_l)//'/rate_constant_Arrhenius/activation_energy',& 
@@ -85,16 +89,30 @@ module darcy_impes_leaching_chemical_model
                    
                   
                 case('Jarosite_Precipitation')
-                  di%lc%sol%jaro%dcdt => extract_scalar_field(di%state(1), 'jaro_dM_dt', stat=stat)
+                  di%lc%sol%jaro%dcdt => extract_scalar_field(di%state(2), 'Jarosite_dM_dt', stat=stat)
                   if (.not. stat==0) then
-                    FLAbort('failed to extract the leaching reaction named jaro_dM_dt')
+                    FLAbort('failed to extract the leaching reaction named Jarosite_dM_dt')
                   end if
+                  di%lc%sol%jaro%js => extract_scalar_field(di%state(2), 'Jarosite_molar_concentration', stat=stat)
+                  if (.not. stat==0) then
+                    FLAbort('failed to extract the leaching reaction named Jarosite_molar_concentration')
+                  end if
+                  path_l = trim(option_path)//'::'//trim(reaction_name)
+                  !get the name of the the scalar field used to calculate pH and Fe3 concentration
+                  call get_option(trim(path_l)//'/H_name',di%lc%sol%jaro%H_name)
+                  call get_option(trim(path_l)//'/Fe3_name',di%lc%sol%jaro%Fe3_name)
+
+
 
                 case('Oxygen_dissolution')
-                  di%lc%sol%oxdi%dcdt => extract_scalar_field(di%state(1), 'oxdi_dOg_dt', stat=stat)
+                  di%lc%sol%oxdi%dcdt => extract_scalar_field(di%state(2), 'oxdi_dOg_dt', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named oxdi_dOg_dt')
                   end if
+                  path_l = trim(option_path)//'::'//trim(reaction_name)
+                  !get the name of the the scalar field used for gas phase oxygen and liquid phase oxygen
+                  call get_option(trim(path_l)//'/og_name',di%lc%sol%oxdi%og_name)
+                  call get_option(trim(path_l)//'/o2_name',di%lc%sol%oxdi%o2_name)
 
                 case default
                   FLAbort("Leaching chemical algorithm " // trim(reaction_name) // " not found")
@@ -119,25 +137,32 @@ module darcy_impes_leaching_chemical_model
               select case(trim(reaction_name))
               
                 case('CuFeS2_oxidation_aqueous_ferric_sulfate')
-                  di%lc%dis%chal%dcdt => extract_scalar_field(di%state(1), 'chal_dCuFeS2_dt', stat=stat)
+                  di%lc%dis%chal%dcdt => extract_scalar_field(di%state(2), 'chal_dCuFeS2_dt', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named chal_dCuFeS2_dt')
                   end if
                   !get extraction rate
-                  di%lc%dis%chal%ex_r => extract_scalar_field(di%state(1), 'chal_extraction_rate', stat=stat)
+                  di%lc%dis%chal%ex_r => extract_scalar_field(di%state(2), 'chal_extraction_rate', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named chal_extraction_rate')
                   end if
                   !get current extraction
-                  di%lc%dis%chal%ex => extract_scalar_field(di%state(1), 'chal_current_extraction', stat=stat)
+                  di%lc%dis%chal%ex => extract_scalar_field(di%state(2), 'chal_current_extraction', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named chal_current_extraction')
                   end if
                   !get the molar concentraction of the mineral, mole per volume of heap
-                  di%lc%dis%chal%mc => extract_scalar_field(di%state(1), 'chal_molar_concentration', stat=stat)
+                  di%lc%dis%chal%mc => extract_scalar_field(di%state(2), 'chal_molar_concentration', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named chal_molar_concentration')
-                  end if                  
+                  end if                 
+
+                  !get the reaction frefactor
+                  di%lc%dis%chal%ak%A => extract_scalar_field(di%state(2), 'chal_prefactor', stat=stat)
+                  if (.not. stat==0) then
+                     FLAbort('failed to extract the leaching reaction named chal_prefactor')
+                  end if
+ 
                   !get activation energy
                   path_l = trim(option_path)//'::'//trim(reaction_name)
                   call get_option(trim(path_l)//'/rate_constant_Arrhenius/activation_energy',&         
@@ -186,25 +211,32 @@ module darcy_impes_leaching_chemical_model
                 
                 
                 case('FeS2_oxidation_aqueous_ferric_sulfate')
-                  di%lc%dis%pyri%dcdt => extract_scalar_field(di%state(1), 'pyri_dFeS2_dt', stat=stat)
+                  di%lc%dis%pyri%dcdt => extract_scalar_field(di%state(2), 'pyri_dFeS2_dt', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named pyri_dFeS2_dt')
                   end if
                   !get extraction rate
-                  di%lc%dis%pyri%ex_r => extract_scalar_field(di%state(1), 'pyri_extraction_rate', stat=stat)
+                  di%lc%dis%pyri%ex_r => extract_scalar_field(di%state(2), 'pyri_extraction_rate', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named pyri_extraction_rate')
                   end if
                   !get current extraction
-                  di%lc%dis%pyri%ex => extract_scalar_field(di%state(1), 'pyri_current_extraction', stat=stat)
+                  di%lc%dis%pyri%ex => extract_scalar_field(di%state(2), 'pyri_current_extraction', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named pyri_current_extraction')
                   end if
                   !get the molar concentraction of the mineral, mole per volume of heap
-                  di%lc%dis%pyri%mc => extract_scalar_field(di%state(1), 'pyri_molar_concentration', stat=stat)
+                  di%lc%dis%pyri%mc => extract_scalar_field(di%state(2), 'pyri_molar_concentration', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named pyri_molar_concentration')
                   end if
+
+                 !get the reaction frefactor
+                  di%lc%dis%pyri%ak%A => extract_scalar_field(di%state(2), 'pyri_prefactor', stat=stat)
+                  if (.not. stat==0) then
+                     FLAbort('failed to extract the leaching reaction named pyri_prefactor')
+                  end if
+
                   !get activation energy
                   path_l = trim(option_path)//'::'//trim(reaction_name)
                   call get_option(trim(path_l)//'/rate_constant_Arrhenius/activation_energy',&
@@ -253,7 +285,7 @@ module darcy_impes_leaching_chemical_model
 
                 
                 case('S0_dissolution')
-                  di%lc%dis%sulf%dcdt => extract_scalar_field(di%state(1), 'sulf_dS0_dt', stat=stat)
+                  di%lc%dis%sulf%dcdt => extract_scalar_field(di%state(2), 'sulf_dS0_dt', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named sulf_dS0_dt')
                   end if
@@ -399,6 +431,7 @@ module darcy_impes_leaching_chemical_model
 
            case("Ferrous_Oxidation")
               nullify(di%lc%sol%feox%dcdt)
+              nullify(di%lc%sol%feox%ak%A)
               deallocate(di%lc%sol%feox%ak%bulk)
 
            case('Jarosite_Precipitation')
@@ -428,16 +461,18 @@ module darcy_impes_leaching_chemical_model
               nullify(di%lc%dis%chal%ex_r)
               nullify(di%lc%dis%chal%ex)
               nullify(di%lc%dis%chal%mc)
+              nullify(di%lc%dis%chal%ak%A)
               deallocate(di%lc%dis%chal%ak%bulk)
               deallocate(di%lc%dis%chal%spline_coe)
               deallocate(di%lc%dis%chal%exp_ex)
               deallocate(di%lc%dis%chal%exp_exrk)
-
+              
            case('FeS2_oxidation_aqueous_ferric_sulfate')
               nullify(di%lc%dis%pyri%dcdt)
               nullify(di%lc%dis%pyri%ex_r)
               nullify(di%lc%dis%pyri%ex)
               nullify(di%lc%dis%pyri%mc)
+              nullify(di%lc%dis%pyri%ak%A)
               deallocate(di%lc%dis%pyri%ak%bulk)
               deallocate(di%lc%dis%pyri%spline_coe)
               deallocate(di%lc%dis%pyri%exp_ex)
@@ -498,7 +533,7 @@ module darcy_impes_leaching_chemical_model
       
       !local variables
       type(scalar_field) :: leach_src, single_src
-      integer :: n
+      integer :: n,p,i
       real :: s_factor !the stoichemistry factor
       character(len=FIELD_NAME_LEN) :: lc_name
       type(scalar_field), pointer :: src => null()
@@ -519,41 +554,43 @@ module darcy_impes_leaching_chemical_model
           select case(trim(lc_name))
              case("Ferrous_Oxidation")
                if (.not. associated(di%lc%sol%feox%dcdt)) &
-               FLAbort('Ferrous_Oxidation is turned off in the leaching chemical model, &
-               while its source term is turned on under the prognostic scaler field') 
-               src => di%lc%sol%feox%dcdt
-               call addto(single_src,src,s_factor)
-               call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
+               FLAbort('Ferrous_Oxidation is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field') 
+               src => di%lc%sol%feox%dcdt             
              
              case('Jarosite_Precipitation')
                if (.not. associated(di%lc%sol%jaro%dcdt)) &
-               FLAbort('Jarosite_Precipitation is turned off in the leaching chemical model, &
-               while its source term is turned on under the prognostic scaler field')  
+               FLAbort('Jarosite_Precipitation is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')  
                src => di%lc%sol%jaro%dcdt
-               call addto(single_src,src,s_factor)
-               call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
             
              case('Oxygen_dissolution_liquid_phase') 
                if (.not. associated(di%lc%sol%oxdi%dcdt)) &
-               FLAbort('Oxygen_dissolution is turned off in the leaching chemical model, &
-               while its source term is turned on under the prognostic scaler field')
-               src => di%lc%sol%oxdi%dcdt
-               call addto(single_src,src,s_factor)
-               call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
+               FLAbort('Oxygen_dissolution is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')
+               cycle !calculate elsewhere, in the calculate oxygen dissolution subroutine
             
              case('Oxygen_dissolution_gas_phase')
                if (.not. associated(di%lc%sol%oxdi%dcdt)) &
-               FLAbort('Oxygen_dissolution is turned off in the leaching chemical model, &
-               while its source term is turned on under the prognostic scaler field')
-               src => di%lc%sol%oxdi%dcdt
-               call addto(single_src,src,s_factor)
-               call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
+               FLAbort('Oxygen_dissolution is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')
+               cycle !calculate elsewhere, in the calculate oxygen dissolution subroutine
             
              case default
                FLAbort("Leaching chemical algorithm " // trim(lc_name) // " not found")
           end select
           
-          call set(di%generic_prog_sfield(f)%lc_src%sfield_sol_src(n)%sfield, single_src)
+          call addto(single_src,src,s_factor)
+          call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
+          
+          p=di%generic_prog_sfield(f)%phase
+          
+           
+          node_loop: do i=1,di%number_pmesh_node
+            if (di%prt_is_constant) then
+             single_src%val(i)=single_src%val(i)/(di%porosity_cnt(1)*di%saturation(p)%ptr%val(i))
+            else 
+             single_src%val(i)=single_src%val(i)/(di%porosity_pmesh%val(i)*di%saturation(p)%ptr%val(i))
+            end if
+            
+            di%generic_prog_sfield(f)%lc_src%sfield_sol_src(n)%sfield%val(i)=single_src%val(i) !mole/m^3_solution               
+          end do node_loop
           
         end do
 
@@ -570,33 +607,25 @@ module darcy_impes_leaching_chemical_model
           select case(trim(lc_name))
              case("CuFeS2_oxidation_aqueous_ferric_sulfate")
                if (.not. associated(di%lc%dis%chal%dcdt)) &
-               FLAbort('CuFeS2_oxidation_aqueous_ferric_sulfate is turned off in the leaching chemical model, &
-               while its source term is turned on under the prognostic scaler field')
+               FLAbort('CuFeS2_oxidation_aqueous_ferric_sulfate is turned off in the leaching chemical model,while its source term is turned on under the prognostic scaler field')
                src => di%lc%dis%chal%dcdt
-               call addto(single_src,src,s_factor)
-               call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
- 
 
              case('FeS2_oxidation_aqueous_ferric_sulfate')
                if (.not. associated(di%lc%dis%pyri%dcdt)) &
-               FLAbort('FeS2_oxidation_aqueous_ferric_sulfate is turned off in the leaching chemical model, &
-               while its source term is turned on under the prognostic scaler field')
+               FLAbort('FeS2_oxidation_aqueous_ferric_sulfate is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')
                src => di%lc%dis%pyri%dcdt 
-               call addto(single_src,src,s_factor)
-               call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
 
              case('S0_dissolution')
                if (.not. associated(di%lc%dis%sulf%dcdt)) &
-               FLAbort('S0_dissolution is turned off in the leaching chemical model, &
-               while its source term is turned on under the prognostic scaler field')
+               FLAbort('S0_dissolution is turned off in the leaching chemical model,while its source term is turned on under the prognostic scaler field')
                src => di%lc%dis%sulf%dcdt
-               call addto(single_src,src,s_factor)
-               call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
 
              case default
                FLAbort("Leaching chemical algorithm " // trim(lc_name) // " not found")
           end select
           
+          call addto(single_src,src,s_factor)
+          call addto(leach_src, single_src) !addto the chemical source term with scale of the stoichemistry factor
           call set(di%generic_prog_sfield(f)%lc_src%sfield_dis_src(n)%sfield, single_src)
           
         end do
@@ -617,38 +646,93 @@ module darcy_impes_leaching_chemical_model
    !-------------calculate leaching chemical model----------------------------------------------!
    subroutine calculate_leaching_chemical_model(di)
       type(darcy_impes_type), intent(inout) :: di
+      
+      integer :: i
+      real :: T,ft
+      real, dimension(:), allocatable :: A !pre-factor of the arrhenius rate constant
 
       !for mineral dissolution
       if (di%lc%have_dis) then            
-         !--------for the chalcopyrite dissolution-----------------------------------!
          ! Chalcopyrite oxidation 
          if (associated(di%lc%dis%chal%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
-                                          di%lc%ht%liquid_temperature,di%number_pmesh_node,di%dt,di%lc%dis%chal)
+                                          di%lc%ht%liquid_temperature,di%number_pmesh_node,di%dt,di%lc%dis%chal,&
+                                          di%saturation(2)%ptr)
          !pyrite dissolution
          if (associated(di%lc%dis%pyri%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
-                                          di%lc%ht%liquid_temperature,di%number_pmesh_node,di%dt,di%lc%dis%pyri)        
+                                          di%lc%ht%liquid_temperature,di%number_pmesh_node,di%dt,di%lc%dis%pyri,&
+                                          di%saturation(2)%ptr)        
+      end if
+
+      if (di%lc%have_sol) then
+         !ferrous oxidation
+         if (associated(di%lc%sol%feox%dcdt)) then
+            !calcultae the prefactor A, since the partial pressure of oxygen in the reaction rate equation are
+            !transformed to the molar concentraction of dissolved oxygen by empirical equilibrium equatiion (Tromans1998)
+            allocate(A(di%number_pmesh_node))
+            
+            node_loop: do i=1,di%number_pmesh_node
+               !reaction only start when liquid saturation is not zero
+               if (di%saturation(2)%ptr%val(i)>=1.0e-4) then
+                 !calculate the equilibrium constant ft, o2=og*ft
+                 T=di%lc%ht%liquid_temperature%val(i)
+                 ft=(0.046*(T**2.0)+203.35*T*DLOG(T/298.0)-(299.378+0.092*T)*(T-298)-20.591*(10.0**3.0))/(T*8.3144)
+                 ft=EXP(ft)
+                 A(i)=di%lc%sol%feox%ak%A%val(i)/ft
+               else
+                 A(i)=0.0
+               end if
+            end do node_loop
+            
+            call calculate_solution_phase_arrhenius_type_reaction_rate(di%state,&
+                 A,di%lc%ht%liquid_temperature,di%number_pmesh_node,di%lc%sol%feox)
+            !change the mole/(m^3 solution)/s to mole/(m^3 heap)/s
+            if (di%prt_is_constant) then
+              call scale(di%lc%sol%feox%dcdt,di%porosity_cnt(1))
+            else
+              call scale(di%lc%sol%feox%dcdt,di%porosity_pmesh)
+            
+            end if
+
+            call scale(di%lc%sol%feox%dcdt,di%saturation(2)%ptr)
+
+            deallocate(A)
+
+         endif
+
+         !jarosite oxidation
+         if (associated(di%lc%sol%jaro%dcdt)) then
+           call calculate_jarosite_precipitation(di) 
+         end if
+
+         !oxygen dissolution
+         if (associated(di%lc%sol%oxdi%dcdt)) then
+           call calculate_oxygen_dissolution(di)
+         end if
+         
       end if
      
       contains 
 
-        subroutine calculate_mineral_dissolution_semi_empirical_model(states,temperature,node_number,dt,mineral)
+        subroutine calculate_mineral_dissolution_semi_empirical_model(states,temperature,node_number,dt,mineral,sat)
               type(leaching_semi_empirical_model_type), intent(inout) :: mineral
               type(state_type),dimension(:), intent(in) :: states
               integer, intent(in) :: node_number
               type(scalar_field), intent(in) :: temperature
+              type(scalar_field), intent(in) :: sat !liquid saturation
               real, intent(in) :: dt !the time step
-              real :: T_l,mc, k_rate, ext, ext_rk, ext_r, dcdt !temperature, molar concentration of the mineral, tate constant,current extraction 
-                                                      !the extraction rate with k, the extraction rate, the concentration change rate
+              real :: cb_n,mc, k_rate, ext, ext_rk, ext_r, dcdt !bode value of bulk concentration, molar concentration of the mineral, 
+                                                    !tate constant,current extraction,the extraction rate with k, the extraction rate, the concentration change rate
               type(scalar_field_pointer), dimension(:), allocatable :: cb !the reacting bulk species
-              real, dimension(:),allocatable ::  cb_n, m ! the single node val of reacting bulk species and order of reaction
-              real, dimension(:), pointer :: a,b,c,d !spline coefficient
-              integer, dimension(:),allocatable :: p !the phase of the reacting species
-              character(len=FIELD_NAME_LEN), dimension(:),allocatable :: cb_name !the name of the reacting species
-              integer :: nspecies, isp, node, stat
+              real, dimension(:),allocatable ::  m ! the single node val of reacting bulk species and order of reaction
+              real, dimension(:), pointer :: a,b,c,d !spline coefficienti
+              real, dimension(4) :: a_c !the constants used to calculate arrhenius reattion rate
+                                        !pre-factor,activation energy,gas constant,temperature
+              character(len=FIELD_NAME_LEN) :: cb_name !the name of the reacting species
+              integer :: p, nspecies, isp, node, stat
              
               !get the number of species which take part in reaction
               nspecies = size(mineral%ak%bulk)             
-              allocate(cb(nspecies),cb_n(nspecies), m(nspecies), p(nspecies), cb_name(nspecies))
+              allocate(cb(nspecies), m(nspecies))
               
               !spline coefficient
               a => mineral%spline_coe(1,:)
@@ -658,9 +742,9 @@ module darcy_impes_leaching_chemical_model
 
               do isp = 1, nspecies
                 m(isp) = mineral%ak%bulk(isp)%order
-                cb_name(isp) = mineral%ak%bulk(isp)%lc_name
-                p(isp) = mineral%ak%bulk(isp)%phase
-                cb(isp)%ptr => extract_scalar_field(states(p(isp)), trim(cb_name(isp)), stat)
+                cb_name = mineral%ak%bulk(isp)%lc_name
+                p = mineral%ak%bulk(isp)%phase
+                cb(isp)%ptr => extract_scalar_field(states(p), trim(cb_name), stat)
                 if (.not. stat==0) then
                   FLAbort('failed to extract the reacting species')
                 end if
@@ -669,62 +753,59 @@ module darcy_impes_leaching_chemical_model
               !Calculate exctraction rate, extraction, and concentration change rate for each node
               !node loop
               node_loop: do node=1, node_number
-                   
+                   !the current extraction of the element node
+                   ext = node_val(mineral%ex,node)
+                
+                   if (sat%val(node)<=1.0e-8) then
+                     call set(mineral%ex_r, node, 0.0)
+                     call set(mineral%ex, node, ext)
+                     call set(mineral%dcdt, node, 0.0)
+                     cycle
+                   end if
+
+                   !the pre_factor is ingnored in the semi-imperical model, set to 1.0
+                   a_c(1)=node_val(mineral%ak%A, node)
+                   !the activation energy
+                   a_c(2)=mineral%ak%ae
+                   !the gas constant
+                   a_c(3)=mineral%ak%gc
                    !the reaction temperature is based on the liquid temperature
-                   T_l=node_val(temperature, node)
+                   a_c(4)=node_val(temperature, node)
 
                    !the molar concentration of the mineral at the unit of mole per volumn of heap
                    mc= node_val(mineral%mc, node)
 
-                   !calculate rate constant, which is k=e^(Ea/(R*T))
-                   k_rate=EXP(mineral%ak%ae/(mineral%ak%gc*T_l))
-
-                   !the current extraction of the element node
-                   ext = node_val(mineral%ex,node)
-
                    !if extraction of the mineral is nearly one, not reacted
                    if ((1.0-ext)<=1.0D-15) then
-                     ext_r = 0.0 
-                     cycle node_loop                  
+                      k_rate=0.0  !stop reaction
+                      go to 1
                    end if
-
-                   do isp= 1, nspecies
-                      cb_n(isp) = node_val(cb(isp)%ptr, node)
-                      !if either of the reacting species is near zero, not reated
-                      if  (cb_n(isp)<=1.0D-15) then 
-                        if (m(isp) > 0.0) then
-                            ext_r = 0.0  ! the species with positive order is the reactant, stop reaction
-                            cycle node_loop
-                        else
-                            cb_n(isp) = 1.0 !the species with negative order is the product
-                                            !let it equal to 1 and make the reaction independent of it
-                                            !this might not be true, but zero product concentration 
-                                            !normally only happen at beginning of reaction, so might only 
-                                            !result in inaccuracy of the initial reaction 
-                                                                                      
-                        end if
-                       
-                      end if
-                      k_rate = k_rate*(cb_n(isp)**m(isp))
-                   end do
                    
-                   !do cubic spline interpolation for current extraction rate with k
-                   call cubic_spline_interpolation(a,b,c,d,mineral%exp_ex,ext,ext_rk) 
-                   ext_r = ext_rk * k_rate
+                   call calculate_arrhenius_reaction_rate_constant(nspecies,node,cb,m,a_c,k_rate)
                    
-                   !update the new extraction rate, unit is extraction per day
-                   call set(mineral%ex_r, node, ext_r)
+                 1 if (k_rate==0.0) then
+                       call set(mineral%ex_r, node, 0.0)
+                       call set(mineral%ex, node, ext)
+                       call set(mineral%dcdt, node, 0.0)
+                   else                           
+                       !do cubic spline interpolation for current extraction rate with k
+                       call cubic_spline_interpolation(a,b,c,d,mineral%exp_ex,ext,ext_rk) 
+                       ext_r = ext_rk * k_rate
                    
-                   !update the new extraction of the node
-                   ext=ext+(ext_r/86400.0)*dt
-                   call set(mineral%ex, node, ext)
+                       !update the new extraction rate, unit is extraction per day
+                       call set(mineral%ex_r, node, ext_r)
+                   
+                       !update the new extraction of the node
+                       ext=ext+(ext_r/86400.0)*dt
+                       call set(mineral%ex, node, ext)
 
-                   !calculate the concentration change rate of the mineral
-                   !the molar concentration %mc is at the unit of mole/m^3_heap
-                   !the concentration change rate is at the unit of mole/m^3_heap/s
-                   dcdt= -(ext_r/86400.0)*mc
-                   call set(mineral%dcdt, node, dcdt)
-
+                       !calculate the concentration change rate of the mineral
+                       !the molar concentration %mc is at the unit of mole/m^3_heap
+                       !the concentration change rate is at the unit of mole/m^3_heap/s
+                       dcdt= -(ext_r/86400.0)*mc
+                       call set(mineral%dcdt, node, dcdt)
+                   end if 
+                    
               end do node_loop
 
               !finalize
@@ -735,15 +816,234 @@ module darcy_impes_leaching_chemical_model
               end do
 
               deallocate(cb)
-              deallocate(cb_n)
               deallocate(m)
-              deallocate(p)
-              deallocate(cb_name)
           
-
         end subroutine calculate_mineral_dissolution_semi_empirical_model
 
+        subroutine calculate_solution_phase_arrhenius_type_reaction_rate(states,A,temperature,node_number,reaction)
+              type(leaching_arrhenius_reaction_type), intent(inout) :: reaction
+              type(state_type),dimension(:), intent(in) :: states
+              integer, intent(in) :: node_number
+              real, dimension(:),intent(in) :: A !pre-factor of the arrhenius rate constant
+              type(scalar_field), intent(in) :: temperature
+
+              real, dimension(4) :: a_c !the constants used to calculate arrhenius reattion rate
+                                        !pre-factor,activation energy,gas constant,temperature
+              character(len=FIELD_NAME_LEN) :: cb_name !the name of the reacting species
+              type(scalar_field_pointer), dimension(:), allocatable :: cb !the reacting bulk species
+              real, dimension(:),allocatable ::  m ! the single node val of reacting bulk species and order of reaction
+              real :: k_rate
+              
+              integer :: p, nspecies, isp, node, stat
+
+              !get the number of species which take part in reaction
+              nspecies = size(reaction%ak%bulk)
+              allocate(cb(nspecies), m(nspecies))
+              
+              do isp = 1, nspecies
+                m(isp) = reaction%ak%bulk(isp)%order
+                cb_name = reaction%ak%bulk(isp)%lc_name
+                p = reaction%ak%bulk(isp)%phase
+                cb(isp)%ptr => extract_scalar_field(states(p), trim(cb_name), stat)
+                if (.not. stat==0) then
+                  FLAbort('failed to extract the reacting species')
+                end if
+              end do
+
+              !Calculate exctraction rate, extraction, and concentration change rate for each node
+              !node loop
+              node_loop: do node=1, node_number
+                   
+                   if (abs(A(node))<=1.0e-16) then
+                     call set(reaction%dcdt, node, 0.0)
+                   else
+                     !the pre_factor is ingnored in the semi-imperical model, set to 1.0
+                     a_c(1)=A(node)
+                     !the activation energy
+                     a_c(2)=reaction%ak%ae
+                     !the gas constant
+                     a_c(3)=reaction%ak%gc
+                     !the reaction temperature is based on the liquid temperature
+                     a_c(4)=node_val(temperature, node)
+
+                     call calculate_arrhenius_reaction_rate_constant(nspecies,node,cb,m,a_c,k_rate)
+
+                     !mole per volumn of solution per second
+                     call set(reaction%dcdt, node, k_rate)
+                   end if
+              end do node_loop
+
+              !finalize
+              do isp = 1, nspecies
+               nullify(cb(isp)%ptr)
+              end do
+
+              deallocate(cb)
+              deallocate(m)
+ 
+        end subroutine calculate_solution_phase_arrhenius_type_reaction_rate
+
+        subroutine calculate_arrhenius_reaction_rate_constant(nspecies,node,cb,m,ac,k_rate)
+           integer, intent(in) :: nspecies, node
+           type(scalar_field_pointer), dimension(:), intent(in) :: cb !the reacting bulk species
+           real, dimension(4), intent(in) :: ac 
+           real, dimension(:),intent(in) :: m 
+           real, intent(inout) :: k_rate
+           
+           integer :: isp
+           real ::cb_n
+           
+           !calculate rate constant, which is k=A*e^(Ea/(R*T))*(ab1**m1)*(ab2**m2)....
+           k_rate=ac(1)*(EXP(ac(2)/(ac(3)*ac(4))))
+         
+           do isp= 1, nspecies
+              cb_n = node_val(cb(isp)%ptr, node)
+              if (cb_n <=0.1) then
+                if (m(isp) > 0.0) then
+                   k_rate=0.0  !the species with positive order is the reactant, stop reaction
+                   return
+                else
+                   cb_n  = 1.0 !the species with negative order is the product
+                                !let it equal to 1 and make the reaction independent of it
+                                !this might not be true, but zero product concentration 
+                end if
+              end if           
+              k_rate = k_rate*(cb_n**m(isp))
+           end do           
+        end subroutine calculate_arrhenius_reaction_rate_constant 
+
    end subroutine calculate_leaching_chemical_model
+
+
+   subroutine calculate_jarosite_precipitation(di)
+      type(darcy_impes_type), intent(inout) :: di
+
+      type(scalar_field), pointer :: H, Fe3 
+      real :: pH, F, rhs, dpre 
+      integer :: stat, i
+       
+
+      H => extract_scalar_field(di%state(2),trim(di%lc%sol%jaro%H_name), stat=stat)
+      if (.not. stat==0) then
+        FLAbort('failed to extract the scalar field of H+ to calculate pH')
+      end if
+      
+      Fe3 => extract_scalar_field(di%state(2),trim(di%lc%sol%jaro%Fe3_name), stat=stat)
+      if (.not. stat==0) then
+        FLAbort('failed to extract the scalar field of Fe3 to calculate jarosite precipitation')
+      end if
+
+      do i=1,di%number_pmesh_node         
+         !if reactant Fe3 is near zero, stop reaction
+         if ((Fe3%val(i)<=0.1) .or. (di%saturation(2)%ptr%val(i)<1.0e-8)) then
+           di%lc%sol%jaro%dcdt%val(i)=0.0
+         cycle
+
+         end if
+
+         pH=H%val(i)/1000.0
+         pH=-DLOG10(pH)
+         F=Fe3%val(i)*0.055845  !molar weight of Fe3 is 0.055845 kg/mole         
+         F=DLOG10(F)
+         rhs=-1.4319*pH+0.8679
+         if (F>rhs) then
+           dpre=(-2.0e-06)*Fe3%val(i)
+           di%lc%sol%jaro%js%val(i)=di%lc%sol%jaro%js%val(i)+dpre*(-1.0/3.0)
+           !change the unit from (mole/m^3 solution/s) to ((mole/m^3 heap/s)
+           if (di%prt_is_constant) then
+             dpre=di%porosity_cnt(1)*di%saturation(2)%ptr%val(i)*dpre
+           else
+             dpre=di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)*dpre
+           end if
+         else
+          dpre=0.0
+         end if
+         
+         di%lc%sol%jaro%dcdt%val(i)=dpre
+
+      end do
+
+      nullify(H)
+      nullify(Fe3)
+      
+
+   end subroutine calculate_jarosite_precipitation
+
+   subroutine calculate_oxygen_dissolution(di)
+        type(darcy_impes_type), intent(inout) :: di
+
+        type(scalar_field), pointer ::og,o2,Tl,og_src,o2_src
+        real :: theta1, theta2, T, ft,d_O
+        integer :: stat, i
+        og => extract_scalar_field(di%state(1),trim(di%lc%sol%oxdi%og_name), stat=stat)
+        if (.not. stat==0) then
+          FLAbort('failed to extract the scalar field of gas phase oxygen to calculate oxygen dissolution')
+        end if        
+        !extract the oxygen dissolution source term under og
+        og_src  => extract_scalar_field(di%state(1),trim(di%lc%sol%oxdi%og_name)//'_Oxygen_dissolution_gas_phase', stat=stat)
+        if (.not. stat==0) then
+          FLAbort('failed to extract the scalar field of gas phase source term to calculate oxygen dissolution')
+        end if
+        o2 => extract_scalar_field(di%state(2),trim(di%lc%sol%oxdi%o2_name), stat=stat)
+        if (.not. stat==0) then
+          FLAbort('failed to extract the scalar field of liquid  phase oxygen to calculate oxygen dissolution')
+        end if
+        !extract the oxygen dissolution source term under o2
+        o2_src  => extract_scalar_field(di%state(2),trim(di%lc%sol%oxdi%o2_name)//'_Oxygen_dissolution_liquid_phase', stat=stat)
+        if (.not. stat==0) then
+          FLAbort('failed to extract the scalar field of liquid phase source term to calculate oxygen dissolution')
+        end if
+        
+        Tl =>  di%lc%ht%liquid_temperature
+        if (.not. stat==0) then
+          FLAbort('failed to extract the scalar field of liquid  temperature to calculate oxygen dissolution')
+        end if
+        
+        !loop over nodes
+        ! if only single phase exist, no dissolution
+        node_loop: do i=1,di%number_pmesh_node
+          if ((di%saturation(1)%ptr%val(i)<=1.0e-8) .or. (di%saturation(2)%ptr%val(i)<=1.0e-8)) then
+             di%lc%sol%oxdi%dcdt%val(i)=0.0
+             og_src%val(i)=0.0
+             o2_src%val(i)=0.0
+             cycle
+          end if
+
+          !calculate fluid hold-up
+          if (di%prt_is_constant) then
+            theta1=di%porosity_cnt(1)*di%saturation(1)%ptr%val(i)
+            theta2=di%porosity_cnt(1)*di%saturation(2)%ptr%val(i)
+          else
+            theta1=di%porosity_pmesh%val(i)*di%saturation(1)%ptr%val(i)
+            theta2=di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)
+          end if
+          
+
+          !calculate the equilibrium constant ft, o2=og*ft
+          T=Tl%val(i)
+          ft=(0.046*(T**2.0)+203.35*T*DLOG(T/298.0)-(299.378+0.092*T)*(T-298)-20.591*(10.0**3.0))/(T*8.3144)
+          ft=0.08205746*T*EXP(ft) !0.08205746 is gas constant in the unit of L*atm*K^-1*mol^-1
+          
+          ! the transfer of oxygen from liquid phase to gas phase in unit of mole/m^3_heap
+          d_O=(1.0/(ft/theta1+1.0/theta2))*(o2%val(i)-ft*og%val(i))
+          di%lc%sol%oxdi%dcdt%val(i)=d_O
+          !add the equilibrium term of oxygen dissolution to gas phase and liquid phase oxygen
+          !for gas phase
+          og_src%val(i)=d_O/theta1
+          og%val(i)=og%val(i)+og_src%val(i)
+          !for liquid phase
+          o2_src%val(i)=-d_O/theta2
+          o2%val(i)=o2%val(i)+o2_src%val(i)
+
+        end do node_loop
+
+        nullify(og)
+        nullify(og_src)
+        nullify(o2)
+        nullify(o2_src)
+        nullify(Tl)
+
+   end subroutine calculate_oxygen_dissolution
     
    !---------------------some accessory subroutines----------------------------------------
 
