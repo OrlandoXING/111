@@ -1056,7 +1056,7 @@ module darcy_impes_leaching_chemical_model
 
       n=size(x_data)
 
-      if (x<x_data(1)) then
+      if (x<=x_data(1)) then
         y=b(1)*(x-x_data(1))+a(1)
       else if (x>x_data(n)) then
         y=b(n)*(x-x_data(n))+a(n)
