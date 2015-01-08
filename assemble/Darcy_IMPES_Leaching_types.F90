@@ -15,7 +15,8 @@ module darcy_impes_leaching_types
   public :: leach_chemical_type, &
             leach_chemical_prog_sfield_src, &
             leaching_semi_empirical_model_type, &
-            leaching_arrhenius_reaction_type
+            leaching_arrhenius_reaction_type, &
+            leach_prog_sfield_heat_transfer_src
 
   !!----Leaching chemical options-----------------------------------------------------------------------
     !options for the bulk fluid dependency of the rate constant
@@ -96,20 +97,44 @@ module darcy_impes_leaching_types
   !options under darcy_impes_generic_prog_sfield_type
   type leach_chemical_prog_sfield_src
     logical :: have_sol_src = .false. !if have the chemical source terms from solution phase
-    logical :: have_dis_src = .false. !if have the chemical source terms from mineral disslotion
+    logical :: have_dis_src = .false. !if have the chemical source terms from mineral dissolution
     !the array for the source terms from solution phase
     type(leach_chem_src_type), dimension(:), pointer :: sfield_sol_src =>null()
     !the array for the source terms from mineral dissolution
     type(leach_chem_src_type), dimension(:), pointer :: sfield_dis_src =>null()
   end type leach_chemical_prog_sfield_src
-  
+
+  type leach_prog_sfield_heat_transfer_src
+    logical :: have_heat_src = .false. !if have the leach temperature heat transfer sources
+  end type leach_prog_sfield_heat_transfer_src
+
+  type mineral_dissolution_heat_src_type
+    real :: Enthalpy !the enthalpy of the dissolution
+    type(scalar_field), pointer :: md_src !scalar field of mineral dissolution rate (mole/m^3_heap)
+  end type mineral_dissolution_heat_src_type
+
+  type solution_phase_heat_src_type
+     real :: Enthalpy !the enthalpy of the reaction
+     type(scalar_field), pointer :: sr_src !scalar field of solution reaction rate (mole/m^3_heap)
+  end type solution_phase_heat_src_type 
+ 
   type leach_heat_transfer_model
      logical:: heat_transfer_single = .false.
      logical:: heat_transfer_two = .false.
      logical:: heat_transfer_three = .false.
-     type(scalar_field), pointer :: liquid_temperature
-     type(scalar_field), pointer :: air_temperature
-     type(scalar_field), pointer :: rock_temperature
+     type(scalar_field), pointer :: liquid_temperature => null()
+     type(scalar_field), pointer :: air_temperature => null()
+     type(scalar_field), pointer :: rock_temperature => null()
+     type(scalar_field), pointer :: rock_temperature_src => null()
+     logical:: have_rock_temperature_src = .false.
+     type(scalar_field), pointer :: rock_cp => null()
+     type(scalar_field), pointer :: rock_density => null()
+     type(scalar_field), pointer :: liquid_cp => null()
+     type(scalar_field), pointer :: K_eff_ls => null() !liquid-solid effective heat transfer coefficient
+     type(scalar_field_pointer), dimension(:), pointer :: two_phase_src_solid => null() !rock temperature heat transfer term
+     type(scalar_field_pointer), dimension(:), pointer :: two_phase_src_liquid => null() !liquid temperature heat transfer term
+     type(mineral_dissolution_heat_src_type), dimension(:), allocatable :: rock_md_src !mineral dissolution heat transfer sources
+     type(solution_phase_heat_src_type), dimension(:), allocatable :: liquid_sr_src !solution phase reactions heat transfer sources
   end type leach_heat_transfer_model
 
   !options for leaching chemical model under darcy_impes_type                                                       
@@ -120,7 +145,6 @@ module darcy_impes_leaching_types
     type(leaching_mineral_dissolution_type):: dis 
     type(leaching_solution_phase_type) :: sol 
     type(leach_heat_transfer_model)::ht
-   end type leach_chemical_type
-  
-  
+  end type leach_chemical_type
+ 
 end module

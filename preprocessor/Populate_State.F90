@@ -1364,7 +1364,8 @@ contains
          
          !*******22 July 2014 lcai*Leaching_chemical_model************************
          !-------------allocate and insert the leaching source field of the prog sfield-----!
-         if (have_option(trim(path)//'/prognostic/LeachingChemicalSourceTerm')) then
+         if (have_option(trim(path)//'/prognostic/LeachingChemicalSourceTerm') .or. &
+             have_option(trim(path)//'/prognostic/leaching_temperature_sources')) then
          
          call allocate_and_insert_leaching_src_prog_sfield(path,field_name, state)
 
@@ -1470,7 +1471,7 @@ contains
        type(state_type), intent(inout) :: state
    
        !local variables
-       character(len=OPTION_PATH_LEN) :: reaction_path, reaction_name, src_path, src_name
+       character(len=OPTION_PATH_LEN) :: reaction_path, reaction_name, src_path, src_path2, src_name
        integer :: nfields, j
    
        !----------for the solution phase reactions
@@ -1502,7 +1503,34 @@ contains
                   dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
          end do
        end if
-   
+     
+       !------------for heat transfer model
+       if (master_field_name .eq. 'Temperature') then
+         if (have_option(trim(master_path)//'/prognostic/leaching_temperature_sources')) then
+            src_path=trim(master_path)//'/prognostic/leaching_temperature_sources'
+            nfields=option_count(trim(src_path)//"/scalar_field")
+            do j=0, nfields-1
+               src_path2=trim(src_path)//"/scalar_field["//int2str(j)//"]"
+               call get_option(trim(src_path2)//"/name", src_name)
+               src_path2=trim(src_path)//"/scalar_field::"//trim(src_name)
+               call allocate_and_insert_scalar_field(trim(src_path2), state, field_name=src_name, &
+                  dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+            end do
+
+           if (have_option(trim(src_path)//'/heat_transfer_sources')) then
+              src_path=trim(src_path)//'/heat_transfer_sources'
+              nfields=option_count(trim(src_path)//"/scalar_field")
+              do j=0, nfields-1
+                 src_path2=trim(src_path)//"/scalar_field["//int2str(j)//"]"
+                 call get_option(trim(src_path2)//"/name", src_name)
+                 src_path2=trim(src_path)//"/scalar_field::"//trim(src_name)
+                 call allocate_and_insert_scalar_field(trim(src_path2), state, field_name=src_name, &
+                  dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+              end do           
+           end if
+         end if
+       end if
+     
     end subroutine allocate_and_insert_leaching_src_prog_sfield
 
     !----------allocate and insert the fields under leaching chemical model--------! 
@@ -1510,12 +1538,12 @@ contains
          !populate the fields for the leaching chemical model 
          !and the leaching source terms for prog sfield
          type(state_type), intent(inout) :: state
-         character(len=OPTION_PATH_LEN) :: path
+         character(len=OPTION_PATH_LEN) :: path, path2
          character(len=OPTION_PATH_LEN) :: field_name
     
          !local variable
          character(len=OPTION_PATH_LEN) :: state_path_lc,reaction_path, reaction_name, prefix
-         integer :: nfields, nreaction, jr, j
+         integer :: nfields, nreaction, nfields2, jr, j
          !--------For solution phase reaction
          if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then
            state_path_lc='/Leaching_chemical_model/SolutionPhaseReactions'
@@ -1605,8 +1633,54 @@ contains
               
            end do
          end if
+
+         !**********For heat transfer model***********************************
+         !for the rock temperature if the heat transfer is set to be 2 phases
+         if (have_option('/Leaching_chemical_model/heat_transfer_model/two_phases_heat_transfer')) then
+           state_path_lc='/Leaching_chemical_model/heat_transfer_model/two_phases_heat_transfer' 
+           nfields=option_count(trim(state_path_lc)//"/scalar_field")
+           do j=0, nfields-1
+             path=trim(state_path_lc)//"/scalar_field["//int2str(j)//"]"
+             call get_option(trim(path)//"/name", field_name)
+             path=trim(state_path_lc)//"/scalar_field::"//trim(field_name)
+             call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
+                                dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)  
+
+             !get the children fields under this field
+             nfields2=option_count(trim(path)//'/scalar_field')
+             do jr=0, nfields2-1
+               path2=trim(path)//"/scalar_field["//int2str(jr)//"]"
+               call get_option(trim(path2)//"/name", field_name)
+               path2=trim(path)//"/scalar_field::"//trim(field_name)
+               call allocate_and_insert_scalar_field(trim(path2), state, field_name=field_name, &
+                             dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+             end do
+           end do
+         
+           if (have_option('/Leaching_chemical_model/heat_transfer_model/two_phases_heat_transfer/heat_transfer_sources'))then
+             state_path_lc='/Leaching_chemical_model/heat_transfer_model/two_phases_heat_transfer/heat_transfer_sources'
+             nfields=option_count(trim(state_path_lc)//"/scalar_field")
+             do j=0, nfields-1
+                path=trim(state_path_lc)//"/scalar_field["//int2str(j)//"]"
+                call get_option(trim(path)//"/name", field_name)
+                path=trim(state_path_lc)//"/scalar_field::"//trim(field_name)
+                call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
+                                dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+
+                !get the children fields under this field
+                nfields2=option_count(trim(path)//'/scalar_field')
+                do jr=0, nfields2-1
+                  path2=trim(path)//"/scalar_field["//int2str(jr)//"]"                  
+                  call get_option(trim(path2)//"/name", field_name)
+                  path2=trim(path)//"/scalar_field::"//trim(field_name)
+                  call allocate_and_insert_scalar_field(trim(path2), state, field_name=field_name, &
+                                dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+                end do
+             end do
+           end if       
+         end if         
      end subroutine allocate_and_insert_leaching_model
-     
+           
 
     !********Finish****lcai***Leaching********************************!
 

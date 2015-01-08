@@ -61,7 +61,8 @@ module darcy_impes_assemble_module
    use global_parameters, only : FIELD_NAME_LEN, OPTION_PATH_LEN
 
    !!*****03 July 2014 LCai ************use Leaching Chemical model****!
-   use darcy_impes_leaching_chemical_model, only: add_leach_chemical_prog_src_to_rhs
+   use darcy_impes_leaching_chemical_model, only: add_leach_chemical_prog_src_to_rhs, &
+          calculate_leach_heat_transfer_prog_Temperature_src_to_rhs
    use darcy_impes_assemble_type
    !!************Finish********************
 
@@ -2398,24 +2399,28 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
       call scale(di%rhs, di%cv_mass_pressure_mesh_with_old_porosity)
       call scale(di%rhs, di%old_sat_ADE) ! *****27 July 2013 LCai***change the old saturation into pointed one
       call scale(di%rhs, di%generic_prog_sfield(f)%old_sfield)
-      
+
       ! Add source to rhs   
       if (di%generic_prog_sfield(f)%have_src) then
-         
+
          call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, di%generic_prog_sfield(f)%sfield_src)
          
          call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
          
       end if
 
-      !**************16 July 2014 lcai**********Leaching chemical model*************!
+      !************** lcai**********Leaching chemical model*************!
       !Add leaching chemical source term to rhs
       if (di%lc%have_leach_chem_model) then
          call add_leach_chemical_prog_src_to_rhs(di,f)
       end if
       
-      !*************end 16 July 2014 lcai**********Leaching chemical model**********!
-      
+      !***Leaching heat transfer model
+      if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then
+        call calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di,f)
+      end if
+      !*************end lcai*****************!
+
 
       ! ************** 15 & 22 Aug 2013 LCai ********************************!
       !If the immobile prognostic field exist, solve the source term of Mobile-immobile model implicitly

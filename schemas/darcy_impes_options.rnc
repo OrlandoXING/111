@@ -2581,7 +2581,7 @@ darcy_impes_prog_field_chemical_source_term =
 	  ## The source term from the chemical reactions for heap leaching
           element LeachingChemicalSourceTerm{
 		darcy_impes_leaching_solution_phase_prog_src?,
-                darcy_impes_leaching_mineral_dissolution_prog_src?
+          darcy_impes_leaching_mineral_dissolution_prog_src?
           }
    )
 
@@ -2591,9 +2591,9 @@ darcy_impes_leaching_solution_phase_prog_src =
        ##This is the source term from solution phase chemical reactions of heap leaching
        ##The algorithms currently available are for chalcopyrite leaching
        ##please select the corresponding reactions
+       ##the value of this source term is based on unit: mole/m^3_solution
        element SolutionPhaseSource{
               ( 
-                ##The internal algorithms currently available are for chalcopyrite leaching
                 element scalar_field {
                           attribute rank { "0" },
                           attribute name {"Ferrous_Oxidation"},
@@ -2667,9 +2667,9 @@ darcy_impes_leaching_mineral_dissolution_prog_src =
        ##This is the source term from mineral dissolution of heap leaching
        ##The algorithms currently available are for chalcopyrite leaching
        ##please select the corresponding reactions
+       ##the value of this source term is based on unit: mole/m^3_heap
        element MineralDissolutionSource{
               (
-                ##The internal algorithms currently available are for chalcopyrite leaching
                 element scalar_field {
                           attribute rank { "0" },
                           attribute name {"CuFeS2_oxidation_aqueous_ferric_sulfate"},
@@ -2745,6 +2745,7 @@ leaching_mineral_dissolution_options =
                  attribute name {"CuFeS2_oxidation_aqueous_ferric_sulfate"},
                  ##This is the semi-empirical model for chalcopyrite dissolution 
                  ##by ferric sulfate
+                 ##the value of this reaction is based on unit: mole/m^3_heap
                  element scalar_field {
                                ##This is the concentraction change rate of CuFeS2
                                ##mole/s per m^3 of heap
@@ -2765,6 +2766,7 @@ leaching_mineral_dissolution_options =
                  attribute name {"FeS2_oxidation_aqueous_ferric_sulfate"},
                  ##This is the semi-empirical model for pyrite dissolution 
                  ##by ferric sulfate
+                 ##the value of this reaction is based on unit: mole/m^3_heap
                  element scalar_field {
                                ##This is the concentraction change rate of FeS2
                                ##mole/s per m^3 of heap
@@ -2923,6 +2925,7 @@ leaching_solution_phase_options =
                  element reaction{
                  attribute name {"Ferrous_Oxidation"},
                  ##Ferrous oxidation by H+
+                 ##the value of this reaction is based on unit: mole/m^3_heap
                  element scalar_field {
                                ##This is the concentraction change rate of Fe2
                                ##mole/s per m^3 of heap
@@ -3013,31 +3016,41 @@ leaching_solution_phase_options =
  )
 
 leaching_heat_transfer_model =
-  (
+   ( 
     ##please select the heat transfer mode, which may be 
     ##3 phases heat transfer (air, liquid,rock),2 phases heat
     ##transfer (air,liquid) or single phase (liquid)
-    element heat_transfer_model {
+    ##turn on the rock temperature if it is 2 or 3 phase heat transfer
+     element heat_transfer_model {
       (    
        ##single phase heat transfer (liquid)
-       element single_phase_heat_trasfer {
+       ##please turn on the liquid temperature under phase 2
+       element single_phase_heat_transfer {
              darcy_impes_internal_algorithm
+                          }   
+              )|
+      (    
+       ##2 phases heat transfer (liquid, rock)
+       ##please turn on the liquid temperature under phase 2
+       ##and rock temperature under the heat transfer model
+       element two_phases_heat_transfer {
+             darcy_impes_internal_algorithm,
+             darcy_impes_leaching_rock_properties_and_source
                           }    
               )|
       (    
-       ##2 phases heat transfer (air, liquid)
-       element two_phases_heat_trasfer {
-             darcy_impes_internal_algorithm
-                          }    
-              )|
-       (    
        ##3 phases heat transfer (air, liquid,rock)
-       element three_phases_heat_trasfer {
-             darcy_impes_internal_algorithm
+       ##please turn on the air temperature under phase 1
+       ##and the liquid temperature under phase 2
+       ##and the rock temperature under the heat transfer model
+       ##NOT Finished yet
+       element three_phases_heat_transfer {
+             darcy_impes_internal_algorithm,
+             darcy_impes_leaching_rock_properties_and_source
                           }    
               )
-         }
-   )?
+         }       
+    )?
 
 darcy_impes_first_phase_temperature_field =
    (
@@ -3045,21 +3058,27 @@ darcy_impes_first_phase_temperature_field =
          attribute rank { "0" },
          attribute name { "Temperature" },
          (
-            element prognostic {
-               mesh_choice_pressure,
-               darcy_impes_asym_solver_options,               
-               initial_condition_scalar+,
-               darcy_impes_first_phase_bc_pressure_field*,
-               field_output_options,
-               darcy_impes_include_stat, 
-               adaptivity_options_prognostic_scalar_field,
-               interpolation_algorithm_scalar
-            }|
             element prescribed {
-               mesh_choice_pressure,
+               darcy_mesh_choice,
                prescribed_scalar_field,
                field_output_options,
-               darcy_impes_include_stat
+               darcy_impes_include_stat, 
+               darcy_impes_recalculation_options?
+            }|
+            element diagnostic {
+               darcy_mesh_choice,                     
+               scalar_diagnostic_algorithms,                     
+               darcy_impes_diagnostic_scalar_field, 
+               darcy_impes_recalculation_options?
+            }|
+            element prognostic {
+               mesh_choice_pressure,
+               darcy_impes_asym_solver_options,
+               darcy_impes_generic_scalar_field_face_value,
+               initial_condition_scalar+,
+               darcy_impes_generic_scalar_field_bc*,
+               darcy_impes_generic_scalar_field_diff?,
+               darcy_impes_generic_scalar_field_src?
             }
          )
       }
@@ -3071,23 +3090,36 @@ darcy_impes_non_first_phase_temperature_field =
       element scalar_field {
          attribute rank { "0" },
          attribute name { "Temperature" },
-         (    
+         (
+            element prescribed {
+               darcy_mesh_choice,
+               prescribed_scalar_field,
+               field_output_options,
+               darcy_impes_include_stat, 
+               darcy_impes_recalculation_options?
+            }|
+            element diagnostic {
+               darcy_mesh_choice,                     
+               scalar_diagnostic_algorithms,                     
+               darcy_impes_diagnostic_scalar_field, 
+               darcy_impes_recalculation_options?
+            }|
             element prognostic {
                mesh_choice_pressure,
-               darcy_impes_asym_solver_options,     
+               darcy_impes_asym_solver_options,
+               darcy_impes_generic_scalar_field_face_value,
                initial_condition_scalar+,
-               darcy_impes_first_phase_bc_pressure_field*,
+               darcy_impes_generic_scalar_field_bc*,
+               darcy_impes_generic_scalar_field_diff?,
+               darcy_impes_generic_scalar_field_src?,
+               darcy_impes_leaching_liquid_phase_temperature_src?,
+	          darcy_MIM_generic_scalar_field_immobile_src?,                
                field_output_options,
                darcy_impes_include_stat, 
                adaptivity_options_prognostic_scalar_field,
                interpolation_algorithm_scalar
-            }|   
-            element prescribed {
-               mesh_choice_pressure,
-               prescribed_scalar_field,
-               field_output_options,
-               darcy_impes_include_stat
-            }    
+            
+            }
          )    
       }    
    )
@@ -3122,3 +3154,253 @@ darcy_impes_non_first_phase_temperature_field =
     )
    }
  )
+ 
+ darcy_impes_leaching_rock_properties_and_source =
+   (
+      ##Please turn on the rock temperature when choosing the two phase
+      ##or three phase heat transfer
+      ##The conduction heat transfers through rocks are neglected 
+      ##equation tobe solved: (d(T_s*(1-porosity))/dt)=-k_eff(T_s-T_l)*(T_s-T_l)*(1-porosity)/(Cp_s*rho_s)+H_dissolution/(Cp_s*rho_s)
+      element scalar_field {
+	     attribute rank { "0" },
+		attribute name { "Rock_Temperature" },
+	        (
+                element diagnostic {
+                        mesh_choice_pressure,
+                        darcy_impes_internal_algorithm,
+                        initial_condition_scalar+,
+                        darcy_impes_diagnostic_scalar_field,
+                        darcy_impes_recalculation_options?
+                        }|
+                element prescribed {
+                        mesh_choice_pressure,
+                        prescribed_scalar_field,
+                        field_output_options,
+                        darcy_impes_include_stat,
+                        darcy_impes_recalculation_options?
+                        }
+                         ),
+                element scalar_field {
+                   attribute rank {"0" },
+                   attribute name {"Rock_Temperature_Source"},
+                   (
+                   element diagnostic {
+                           mesh_choice_pressure,
+                           darcy_impes_scalar_python_diagnostic_algorithm,
+                           darcy_impes_diagnostic_scalar_field
+                           }
+                      )
+                        }?
+                                          
+	         },     
+	  element scalar_field {
+             attribute rank { "0" },
+             attribute name { "Rock_density" },
+             (    
+               element diagnostic {
+                    mesh_choice_pressure,
+                    darcy_impes_scalar_python_diagnostic_algorithm,
+                    darcy_impes_diagnostic_scalar_field
+                      }|   
+               element prescribed {
+                    mesh_choice_pressure,
+                    prescribed_scalar_field,
+                    field_output_options,
+                    darcy_impes_include_stat,
+                    darcy_impes_recalculation_options?
+                       }    
+                 )    
+              },
+      (
+       ##heat capacity of rock,kJ/(Kg*K)
+       element scalar_field {
+             attribute rank { "0" },
+             attribute name { "Rock_Cp" },
+             (    
+               element diagnostic {
+                    mesh_choice_pressure,
+                    darcy_impes_scalar_python_diagnostic_algorithm,
+                    darcy_impes_diagnostic_scalar_field
+                      }|   
+               element prescribed {
+                    mesh_choice_pressure,
+                    prescribed_scalar_field,
+                    field_output_options,
+                    darcy_impes_include_stat,
+                    darcy_impes_recalculation_options?
+                       }    
+                 )    
+              }
+       ),
+       (
+         ## the source term of heat transfer to calculate rock temperature
+         element heat_transfer_sources {
+           (
+            ##the solid-liquid convection heat transfer term
+            ##-k_eff(T_r-T_l)*(1-porosity)/(Cp_r*rho_r), unit: (k/s)*(m^3_r/m^3_heap)
+            element scalar_field {
+               attribute rank { "0" },
+               attribute name { "solid_liquid_heat_transfer_rock_phase" },    
+               element diagnostic {
+                    mesh_choice_pressure,
+                    darcy_impes_internal_algorithm,
+                    darcy_impes_diagnostic_scalar_field
+                },
+              (
+               ##effective heat transfer coefficient between solid and liquid,
+               ##kw/(k*m^3)  
+               element scalar_field {
+                    attribute rank { "0" },
+                    attribute name { "K_eff_sl" },
+                    (
+                      element diagnostic {
+                             mesh_choice_pressure,
+                             darcy_impes_scalar_python_diagnostic_algorithm,
+                             darcy_impes_diagnostic_scalar_field
+                      }|
+                      element prescribed {
+                             mesh_choice_pressure,
+                             prescribed_scalar_field,
+                             field_output_options,
+                             darcy_impes_include_stat,
+                             darcy_impes_recalculation_options?
+                      }
+                    )
+                } 
+              )                   
+            }
+           ),
+           
+           (
+            ##the source term of the heat released by mineral dissolution reactions
+            ##now only support the chalcopyrite leaching
+            ##H_dissolution/(cp_r*rho_r),unit: (k/s)*(m^3_r/m^3_heap)
+            element scalar_field {
+               attribute rank { "0" },
+               attribute name { "mineral_dissolution_heat_sources" },
+               element diagnostic {
+                    mesh_choice_pressure,
+                    darcy_impes_internal_algorithm,
+                    darcy_impes_diagnostic_scalar_field
+                },
+               ( 
+                (
+                ##chalcopyrite dissolution
+                element mineral_dissolutions {
+                    
+                     attribute name { "chal_dCuFeS2_dt" },  
+                    (
+                     ##KJ/mole
+                     element Enthalpy {
+                          comment,       
+                          real
+                          }
+                        )  
+                     }
+                    )|
+                 (
+                 ##pyrite dissolution   
+                 element mineral_dissolutions {
+                     attribute name { "pyri_dFeS2_dt" }, 
+                    (
+                     ##KJ/mole    
+                     element Enthalpy {
+                          comment,       
+                          real
+                          }
+                        )                 
+                     }
+                    )| 
+                 (
+                  ##elemental sulfur dissolution   
+                 element mineral_dissolutions {                    
+                     attribute name { "sulf_dS0_dt" }, 
+                    (
+                     ##KJ/mole    
+                     element Enthalpy {
+                          comment,       
+                          real
+                          }
+                        )                           
+                     }
+                    )
+                   )+          
+                  }
+                 )? 
+              }  
+           )
+       )             	        
+    
+    
+    darcy_impes_leaching_liquid_phase_temperature_src =
+      (
+        ##This is the temperature source term for chalcopyrote leaching
+        ##For heat transfer between phases as well as
+        ##the heat generation and consumption form solution phase reactions      
+        element leaching_temperature_sources {
+            (
+               ##heat capacity of liquid,kJ/(Kg*K)
+               element scalar_field {
+               attribute rank { "0" },
+               attribute name { "Liquid_Cp" },
+               (    
+                 element diagnostic {
+                    mesh_choice_pressure,
+                    darcy_impes_scalar_python_diagnostic_algorithm,
+                    darcy_impes_diagnostic_scalar_field
+                      }|   
+                 element prescribed {
+                    mesh_choice_pressure,
+                    prescribed_scalar_field,
+                    field_output_options,
+                    darcy_impes_include_stat,
+                    darcy_impes_recalculation_options?
+                       }    
+                 )    
+              }
+           ),
+        (
+         ## the source term of liqudi temperature
+         element heat_transfer_sources {
+           (
+            ##the solid-liquid convection heat transfer term
+            ##k_eff(T_r-T_l)*(1-porosity)/(Cp_l*rho_l), unit: (k/s)*(m^3_l/m^3_heap)
+            element scalar_field {
+               attribute rank { "0" },
+               attribute name { "solid_liquid_heat_transfer_liquid_phase" },    
+               element diagnostic {
+                    mesh_choice_pressure,
+                    darcy_impes_internal_algorithm,
+                    darcy_impes_diagnostic_scalar_field
+                }                   
+            }
+           ),
+           
+           (
+            ##the source term of the heat released by solution phase reactions
+            ##now only support the chalcopyrite leaching
+            ##H_solution_reaction/(cp_l*rho_l),unit: (k/s)*(m^3_l/m^3_heap)
+            element scalar_field {
+               attribute rank { "0" },
+               attribute name { "solution_phase_heat_sources" },
+               element diagnostic {
+                    mesh_choice_pressure,
+                    darcy_impes_internal_algorithm,
+                    darcy_impes_diagnostic_scalar_field
+                },
+                element solution_phase_reactions {
+                     attribute name {"feox_dFe2_dt"}, 
+                    (
+                     ##KJ/mole 
+                     element Enthalpy {
+                          comment,       
+                          real
+                 }
+                )
+              }+ 
+             }  
+           )?
+         }
+       )         
+      }
+     )

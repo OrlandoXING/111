@@ -1043,9 +1043,9 @@ for n in range(field.node_count):
       </reaction>
     </MineralDissolution>
     <heat_transfer_model>
-      <single_phase_heat_trasfer>
+      <single_phase_heat_transfer>
         <algorithm name="Internal"/>
-      </single_phase_heat_trasfer>
+      </single_phase_heat_transfer>
     </heat_transfer_model>
   </Leaching_chemical_model>
   <porous_media>

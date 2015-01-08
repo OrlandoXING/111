@@ -14,6 +14,7 @@ module darcy_impes_leaching_chemical_model
   use initialise_fields_module
   use global_parameters, only: OPTION_PATH_LEN
   use darcy_impes_leaching_types
+  use vtk_cache_module, only:vtk_cache_finalise
   use fefields, only: compute_cv_mass
 
   use darcy_impes_assemble_type, only: darcy_impes_type
@@ -24,7 +25,10 @@ module darcy_impes_leaching_chemical_model
   public :: initialize_leaching_chemical_model, &
             finalize_leaching_chemical_model, &
             add_leach_chemical_prog_src_to_rhs, &
-            calculate_leaching_chemical_model
+            calculate_leaching_chemical_model, &
+            calculate_leach_heat_transfer_prog_Temperature_src_to_rhs, &
+            calculate_leach_heat_transfer_src, &
+            calculate_leach_rock_temperature
   
        
   
@@ -39,8 +43,9 @@ module darcy_impes_leaching_chemical_model
      
   
      !local parameter
-     integer :: p,f,flc, ns, nd, nb,fb, stat,ndata,nshape(2)
-     character(len=OPTION_PATH_LEN) :: option_path, reaction_name, path_l
+     type(vector_field), pointer :: position =>null()
+     integer :: p,f,flc, ns, nd, nb,fb, stat,ndata,nshape(2),n_md,f_md
+     character(len=OPTION_PATH_LEN) :: option_path, reaction_name, path_l,path_md,md_name
         !---------------------allocate the fields in the chemical model-------------
         !for the solution phase reactions
         if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then           
@@ -301,11 +306,203 @@ module darcy_impes_leaching_chemical_model
 
         end if
 
+        !-------------allocate the temperature-----------------------
+        !check the heat transfer model
+        if (have_option('/Leaching_chemical_model/heat_transfer_model')) then
+          option_path='/Leaching_chemical_model/heat_transfer_model'
+          if (have_option(trim(option_path)//'/single_phase_heat_transfer')) then
+             di%lc%ht%heat_transfer_single = .true.
+             di%lc%ht%heat_transfer_two = .false.
+             di%lc%ht%heat_transfer_three = .false.
+          elseif (have_option(trim(option_path)//'/two_phases_heat_transfer')) then
+             di%lc%ht%heat_transfer_two = .true.
+             di%lc%ht%heat_transfer_single = .false.
+             di%lc%ht%heat_transfer_three = .false.
+          else
+             di%lc%ht%heat_transfer_three = .true.
+             di%lc%ht%heat_transfer_two = .false.
+             di%lc%ht%heat_transfer_single = .false.
+          end if
+
+        else
+         !default to calculate liquid phase heat transfer only
+          di%lc%ht%heat_transfer_single = .true.
+          di%lc%ht%heat_transfer_two = .false.
+          di%lc%ht%heat_transfer_three = .false.
+        end if
+
+        di%lc%ht%liquid_temperature => extract_scalar_field(di%state(2), 'Temperature', stat=stat)
+        if (.not. stat==0) then
+           FLAbort('failed to extract the liquid temperature in phase 2 for leaching chemical model')
+        end if
+       
+       if (.not. di%lc%ht%heat_transfer_single) then
+       
+           ! the rock temperature exist and extract it
+           ! also initialize the rock temperature with the initial condition
+           di%lc%ht%rock_temperature => extract_scalar_field(di%state(1), 'Rock_Temperature', stat=stat)
+           if (.not. stat==0) then
+              FLAbort('failed to extract the rock temperature in phase 1 for leaching chemical model')
+           end if
+
+           !initialize the rock temperature
+           position => extract_vector_field(di%state(1), "Coordinate")
+           call zero(di%lc%ht%rock_temperature)
+           call initialise_field_over_regions(di%lc%ht%rock_temperature, &
+                    trim(di%lc%ht%rock_temperature%option_path)//'/diagnostic/initial_condition', &
+               position)
+
+           call vtk_cache_finalise()
+
+           nullify(position)
+
+           !extract the source of rock temperature if exists
+           if (have_option('/Leaching_chemical_model/heat_transfer_model/two_phases_heat_transfer/&
+                    scalar_field::Rock_Temperature/scalar_field::Rock_Temperature_Source')) then
+             
+             di%lc%ht%have_rock_temperature_src = .true.
+             
+             di%lc%ht%rock_temperature_src => extract_scalar_field(di%state(1), 'Rock_Temperature_Source', stat=stat)
+
+             if (.not. stat==0) then
+               FLAbort('failed to extract the rock temperature source in phase 1 for leaching chemical model')
+             end if
+           end if         
+
+
+           !extract the rock density and heat capacity
+           di%lc%ht%rock_cp => extract_scalar_field(di%state(1), 'Rock_Cp', stat=stat)
+           if (.not. stat==0) then
+             FLAbort('failed to extract the Rock heat capacity for leaching chemical model')
+           end if
+           di%lc%ht%rock_density => extract_scalar_field(di%state(1), 'Rock_density', stat=stat)
+           if (.not. stat==0) then
+             FLAbort('failed to extract the Rock density for leaching chemical model')
+           end if
+        end if   
+
+        if (di%lc%ht%heat_transfer_two) then
+           !extract the rock-liquid effective heat transfer coefficient
+           di%lc%ht%K_eff_ls => extract_scalar_field(di%state(1), 'K_eff_sl', stat=stat)
+           if (.not. stat==0) then
+             FLAbort('failed to extract rock-liquid effective heat transfer coefficient')
+           end if
+
+           !extract the rock heat transfer source
+           ns= option_count(trim(option_path)//'/two_phases_heat_transfer/heat_transfer_sources/scalar_field')
+           if (ns==0) FLAbort('For multiple phases heat transfer, please turn on the source term of the rock phase temperature')
+           path_l= trim(option_path)//'/two_phases_heat_transfer/heat_transfer_sources/scalar_field'
+           allocate(di%lc%ht%two_phase_src_solid(ns))
+           do f= 1, ns
+              call get_option(trim(path_l)//'['//int2str(f-1)//']/name', reaction_name)
+              select case(trim(reaction_name))
+
+                case('solid_liquid_heat_transfer_rock_phase') 
+
+                   di%lc%ht%two_phase_src_solid(f)%ptr => extract_scalar_field(di%state(1), 'solid_liquid_heat_transfer_rock_phase', stat=stat)
+                   if (.not. stat==0) then
+                      FLAbort('failed to extract solid_liquid_heat_transfer_rock_phase under phase 1')
+                   end if
+
+                case('mineral_dissolution_heat_sources')
+                    di%lc%ht%two_phase_src_solid(f)%ptr => extract_scalar_field(di%state(1), 'mineral_dissolution_heat_sources', stat=stat)
+                    if (.not. stat==0) then
+                      FLAbort('failed to extract mineral_dissolution_heat_sources under phase 1')
+                    end if
+
+                    !count the number of mineral dissolution sources
+                    n_md=option_count(trim(path_l)//'::mineral_dissolution_heat_sources/mineral_dissolutions')
+                    path_md=trim(path_l)//'::mineral_dissolution_heat_sources/mineral_dissolutions'
+                    allocate(di%lc%ht%rock_md_src(n_md))
+                    do f_md=1,n_md
+                      call get_option(trim(path_md)//'['//int2str(f_md-1)//']/name',md_name)
+                      di%lc%ht%rock_md_src(f_md)%md_src => extract_scalar_field(di%state(1), md_name, stat=stat)
+                      if (.not. stat==0) then
+                        FLAbort('failed to extract field '//md_name//' under phase 1')
+                      end if
+                      call get_option(trim(path_md)//'::'//trim(md_name)//'/Enthalpy', di%lc%ht%rock_md_src(f_md)%Enthalpy)                      
+                    end do
+
+                case default
+                   FLAbort("Heat transfer algorithm " // trim(reaction_name) // "under rock temperature not found")
+
+              end select
+           end do
+           
+           !******************initialize the leaching heat transfer source term under liquid temperature
+           if (.not. have_option('/material_phase::Phase2/scalar_field::Temperature/prognostic/leaching_temperature_sources')) then
+              FLAbort("please turn on the liquid temperature and its leaching temperature sources terms for two phase heat transfer")
+           end if
+           
+           path_l='/material_phase::Phase2/scalar_field::Temperature/prognostic/leaching_temperature_sources/heat_transfer_sources/scalar_field'
+           di%lc%ht%liquid_cp => extract_scalar_field(di%state(2), 'Liquid_Cp',stat=stat)
+           if (.not. stat==0) then
+              FLAbort('failed to extract liquid heat capacity under phase 2')
+           end if
+
+           !extract the heat transfer sources
+           ns=option_count(trim(path_l))
+           if (ns==0) FLAbort('For multiple phases heat transfer, please turn on the source term of liquid phase temperature')
+           allocate(di%lc%ht%two_phase_src_liquid(ns)) 
+           do f= 1, ns
+             call get_option(trim(path_l)//'['//int2str(f-1)//']/name', reaction_name)
+             select case(trim(reaction_name))
+                case('solid_liquid_heat_transfer_liquid_phase')
+                  di%lc%ht%two_phase_src_liquid(f)%ptr => extract_scalar_field(di%state(2), 'solid_liquid_heat_transfer_liquid_phase', stat=stat)
+                  if (.not. stat==0) then
+                    FLAbort('failed to extract solid_liquid_heat_transfer_liquid_phase under phase 2')
+                  end if
+
+                case('solution_phase_heat_sources')
+                  di%lc%ht%two_phase_src_liquid(f)%ptr => extract_scalar_field(di%state(2), 'solution_phase_heat_sources', stat=stat)
+                  if (.not. stat==0) then
+                    FLAbort('failed to extract solution_phase_heat_sources under phase 2')
+                  end if
+
+                  !count the number of solution_phase_heat_sources
+                  n_md=option_count(trim(path_l)//'::solution_phase_heat_sources/solution_phase_reactions')
+                  path_md=trim(path_l)//'::solution_phase_heat_sources/solution_phase_reactions'
+                  allocate(di%lc%ht%liquid_sr_src(n_md))
+                  do f_md=1,n_md
+                    call get_option(trim(path_md)//'['//int2str(f_md-1)//']/name',md_name)
+                    di%lc%ht%liquid_sr_src(f_md)%sr_src => extract_scalar_field(di%state(1), md_name, stat=stat)
+                    if (.not. stat==0) then
+                       FLAbort('failed to extract field'//md_name// 'under phase 1')
+                    end if
+                    call get_option(trim(path_md)//'::'//trim(md_name)//'/Enthalpy', di%lc%ht%liquid_sr_src(f_md)%Enthalpy)
+                  end do
+
+                  case default
+                    FLAbort("Heat transfer algorithm " // trim(reaction_name) // "under rock temperature not found")
+             end select
+           end do
+
+        end if
+
+        if (di%lc%ht%heat_transfer_three) then
+          !the three phase heat transfer between air, .iquid and rock
+          di%lc%ht%air_temperature => extract_scalar_field(di%state(1), 'Temperature', stat=stat)
+          if (.not. stat==0) then
+             FLAbort('failed to extract the air temperature in heat transfer model for leaching chemical model')
+          end if
+        end if
+
         !----------allocate the generic prognostic leaching source terms-------------       
         !--loop over phase
         do f=1, size(di%generic_prog_sfield)
           option_path=di%generic_prog_sfield(f)%sfield%option_path
           p=di%generic_prog_sfield(f)%phase
+          !---check for heat transfer source under temperature field
+          ns=option_count(trim(option_path)//'/prognostic/leaching_temperature_sources/heat_transfer_sources/scalar_field')
+          if (.not. ns==0) then
+            if (di%lc%ht%heat_transfer_single) then
+              FLAbort('Cannot use the single heat transfer model to calculate the solid-liquid heat transfer term under the temperature of phase'// int2str(f) )
+            end if
+
+            di%generic_prog_sfield(f)%lh_src%have_heat_src=.true.
+          else
+            di%generic_prog_sfield(f)%lh_src%have_heat_src=.false.
+          end if
           !---check for solution phase source-----------
           ns = option_count(trim(option_path)//'/prognostic/LeachingChemicalSourceTerm/SolutionPhaseSource/scalar_field')
           if (.not. ns==0) then
@@ -360,47 +557,6 @@ module darcy_impes_leaching_chemical_model
           endif
 
         end do
-
-        !-------------allocate the temperature-----------------------
-        !check the heat transfer model
-        if (have_option('/Leaching_chemical_model/heat_transfer_model')) then
-          if (have_option('/Leaching_chemical_model/heat_transfer_model/single_phase_heat_trasfer')) then
-            di%lc%ht%heat_transfer_single = .true.
-            di%lc%ht%heat_transfer_two = .false.
-            di%lc%ht%heat_transfer_three = .false.
-          elseif (have_option('/Leaching_chemical_model/heat_transfer_model/two_phases_heat_trasfer')) then
-             di%lc%ht%heat_transfer_two = .true.
-             di%lc%ht%heat_transfer_single = .false.
-             di%lc%ht%heat_transfer_three = .false.
-          else 
-             di%lc%ht%heat_transfer_three = .true.
-             di%lc%ht%heat_transfer_two = .false.
-             di%lc%ht%heat_transfer_single = .false.
-          end if
-        else 
-         !default to calculate liquid phase heat transfer only
-          di%lc%ht%heat_transfer_single = .true.
-          di%lc%ht%heat_transfer_two = .false.
-          di%lc%ht%heat_transfer_three = .false.
-        end if
-        
-        di%lc%ht%liquid_temperature => extract_scalar_field(di%state(2), 'Temperature', stat=stat)
-        if (.not. stat==0) then
-           FLAbort('failed to extract the liquid temperature in phase 2 for leaching chemical model')
-        end if
-
-        if (di%lc%ht%heat_transfer_two) then
-          di%lc%ht%air_temperature => extract_scalar_field(di%state(1), 'Temperature', stat=stat)
-          if (.not. stat==0) then
-            FLAbort('failed to extract the air temperature in phase 1 for leaching chemical model')
-          end if
-
-        elseif (di%lc%ht%heat_transfer_three) then
-          di%lc%ht%rock_temperature => extract_scalar_field(di%state(1), 'Rock_Temperature', stat=stat)
-          if (.not. stat==0) then
-             FLAbort('failed to extract the rock temperature in heat transfer model for leaching chemical model')
-          end if
-        end if
 
   end subroutine initialize_leaching_chemical_model
 
@@ -489,7 +645,9 @@ module darcy_impes_leaching_chemical_model
 
      !deallocate leaching prognostic source field 
      do f=1, size(di%generic_prog_sfield)
-       
+       if (di%generic_prog_sfield(f)%lh_src%have_heat_src) &
+         di%generic_prog_sfield(f)%lh_src%have_heat_src=.false.
+
        if (di%generic_prog_sfield(f)%lc_src%have_sol_src) then
          di%generic_prog_sfield(f)%lc_src%have_sol_src = .false.
          do flc=1, size(di%generic_prog_sfield(f)%lc_src%sfield_sol_src)
@@ -511,9 +669,46 @@ module darcy_impes_leaching_chemical_model
      !deallocate heat transfer model
      if (have_option('/Leaching_chemical_model/heat_transfer_model')) then
        nullify(di%lc%ht%liquid_temperature)
-       
-       if (di%lc%ht%heat_transfer_two) nullify(di%lc%ht%air_temperature)
-       if (di%lc%ht%heat_transfer_three) nullify(di%lc%ht%rock_temperature)
+       if (.not. di%lc%ht%heat_transfer_single) then
+          nullify(di%lc%ht%rock_temperature)
+          nullify(di%lc%ht%rock_cp)
+          nullify(di%lc%ht%rock_density)
+
+          if (di%lc%ht%heat_transfer_two) then
+             !for rock phase
+             nullify(di%lc%ht%K_eff_ls)
+             do flc=1,size(di%lc%ht%two_phase_src_solid)
+               nullify(di%lc%ht%two_phase_src_solid(flc)%ptr)
+             end do
+             deallocate(di%lc%ht%two_phase_src_solid)
+             
+             if (allocated(di%lc%ht%rock_md_src)) then
+               do flc=1,size(di%lc%ht%rock_md_src)
+                 nullify(di%lc%ht%rock_md_src(flc)%md_src)
+               end do
+               deallocate(di%lc%ht%rock_md_src)
+             end if
+
+             !for liquid phase
+             nullify(di%lc%ht%liquid_cp)
+             do flc=1,size(di%lc%ht%two_phase_src_liquid)
+               nullify(di%lc%ht%two_phase_src_liquid(flc)%ptr)
+             end do
+             deallocate(di%lc%ht%two_phase_src_liquid)
+
+             if (allocated(di%lc%ht%liquid_sr_src)) then
+               do flc=1,size(di%lc%ht%liquid_sr_src)
+                 nullify(di%lc%ht%liquid_sr_src(flc)%sr_src)
+               end do
+               deallocate(di%lc%ht%liquid_sr_src)
+             end if  
+          end if
+
+          if (di%lc%ht%heat_transfer_three) then
+            nullify(di%lc%ht%rock_temperature)
+            nullify(di%lc%ht%air_temperature)
+          end if    
+       end if
 
        di%lc%ht%heat_transfer_single = .false.
        di%lc%ht%heat_transfer_two = .false.
@@ -650,19 +845,27 @@ module darcy_impes_leaching_chemical_model
       integer :: i
       real :: T,ft
       real, dimension(:), allocatable :: A !pre-factor of the arrhenius rate constant
-
+      type(scalar_field), pointer :: rock_temperature
       !for mineral dissolution
-      if (di%lc%have_dis) then            
+      if (di%lc%have_dis) then  
+         if (.not. di%lc%ht%heat_transfer_single) then
+           rock_temperature =>di%lc%ht%rock_temperature
+         else
+           rock_temperature =>di%lc%ht%liquid_temperature
+         end if
          ! Chalcopyrite oxidation 
          if (associated(di%lc%dis%chal%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
-                                          di%lc%ht%liquid_temperature,di%number_pmesh_node,di%dt,di%lc%dis%chal,&
+                                          rock_temperature,di%number_pmesh_node,di%dt,di%lc%dis%chal,&
                                           di%saturation(2)%ptr)
          !pyrite dissolution
          if (associated(di%lc%dis%pyri%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
-                                          di%lc%ht%liquid_temperature,di%number_pmesh_node,di%dt,di%lc%dis%pyri,&
-                                          di%saturation(2)%ptr)        
-      end if
+                                          rock_temperature,di%number_pmesh_node,di%dt,di%lc%dis%pyri,&
+                                          di%saturation(2)%ptr)
 
+         !finalize                                 
+         nullify(rock_temperature)                                 
+      end if
+  
       if (di%lc%have_sol) then
          !ferrous oxidation
          if (associated(di%lc%sol%feox%dcdt)) then
@@ -684,7 +887,7 @@ module darcy_impes_leaching_chemical_model
             end do node_loop
             
             call calculate_solution_phase_arrhenius_type_reaction_rate(di%state,&
-                 A,di%lc%ht%liquid_temperature,di%number_pmesh_node,di%lc%sol%feox)
+                 A,di%lc%ht%liquid_temperature,di%number_pmesh_node,di%lc%sol%feox) 
             !change the mole/(m^3 solution)/s to mole/(m^3 heap)/s
             if (di%prt_is_constant) then
               call scale(di%lc%sol%feox%dcdt,di%porosity_cnt(1))
@@ -865,7 +1068,7 @@ module darcy_impes_leaching_chemical_model
                      a_c(3)=reaction%ak%gc
                      !the reaction temperature is based on the liquid temperature
                      a_c(4)=node_val(temperature, node)
-
+                     
                      call calculate_arrhenius_reaction_rate_constant(nspecies,node,cb,m,a_c,k_rate)
 
                      !mole per volumn of solution per second
@@ -895,11 +1098,10 @@ module darcy_impes_leaching_chemical_model
            
            !calculate rate constant, which is k=A*e^(Ea/(R*T))*(ab1**m1)*(ab2**m2)....
            k_rate=ac(1)*(EXP(ac(2)/(ac(3)*ac(4))))
-         
-           do isp= 1, nspecies
+           do isp= 1, nspecies                 
               cb_n = node_val(cb(isp)%ptr, node)
               if (cb_n <=0.1) then
-                if (m(isp) > 0.0) then
+                if (m(isp) > 0.0) then  
                    k_rate=0.0  !the species with positive order is the reactant, stop reaction
                    return
                 else
@@ -907,9 +1109,10 @@ module darcy_impes_leaching_chemical_model
                                 !let it equal to 1 and make the reaction independent of it
                                 !this might not be true, but zero product concentration 
                 end if
-              end if           
-              k_rate = k_rate*(cb_n**m(isp))
-           end do           
+              end if                                    
+              k_rate = k_rate*(cb_n**m(isp)) 
+           end do  
+                              
         end subroutine calculate_arrhenius_reaction_rate_constant 
 
    end subroutine calculate_leaching_chemical_model
@@ -1044,7 +1247,146 @@ module darcy_impes_leaching_chemical_model
         nullify(Tl)
 
    end subroutine calculate_oxygen_dissolution
-    
+   
+
+
+   subroutine calculate_leach_heat_transfer_src(di)
+     type(darcy_impes_type), intent(inout) :: di
+
+     !local variables
+     integer :: i,n_s,n_l,nsrc_s,nsrc_l,nd,nr,n2_s,n2_l
+     real :: Crs,Crl,prts,dTsl,ktp,Hs,Hr
+
+     !---------------for two phase heat transfer--------------------
+     !count the number of sources term for solid temperature
+     nsrc_s=size(di%lc%ht%two_phase_src_solid)
+     nsrc_l=size(di%lc%ht%two_phase_src_liquid)
+     if (di%prt_is_constant) then
+        prts=1.0-di%porosity_cnt(1)
+     end if
+
+     node_loop: do i=1,di%number_pmesh_node
+       if (.not. di%prt_is_constant) then
+         prts=1.0-di%porosity_pmesh%val(i)
+       end if
+       Crs=di%lc%ht%rock_cp%val(i)*di%lc%ht%rock_density%val(i)
+       Crl=di%lc%ht%liquid_cp%val(i)*di%density(2)%ptr%val(i)
+       dTsl=di%lc%ht%rock_temperature%val(i)-di%lc%ht%liquid_temperature%val(i)
+       ktp=di%lc%ht%K_eff_ls%val(i)*dTsl*prts
+       
+       !loop the liquid temperature source terms
+       src_loop_l: do n_l=1,nsrc_l
+         
+         select case(di%lc%ht%two_phase_src_liquid(n_l)%ptr%name)
+
+           !the solid-liquid heat transfer source
+           case('solid_liquid_heat_transfer_liquid_phase')
+             di%lc%ht%two_phase_src_liquid(n_l)%ptr%val(i)=ktp/Crl
+             
+           case('solution_phase_heat_sources')
+             Hr=0.0
+             nr=size(di%lc%ht%liquid_sr_src)
+             solution_reaction_loop: do n2_l=1,nr
+               Hr=Hr+di%lc%ht%liquid_sr_src(n2_l)%sr_src%val(i)*di%lc%ht%liquid_sr_src(n2_l)%Enthalpy                
+             end do solution_reaction_loop
+             di%lc%ht%two_phase_src_liquid(n_l)%ptr%val(i)=Hr/Crl
+           case default
+             FLAbort("liquid_phase temperature heat transfer source " // di%lc%ht%two_phase_src_liquid(n_l)%ptr%name // " not found")
+
+         end select    
+       end do src_loop_l
+
+       !loop the rock temperature source terms
+       src_loop_r: do n_s=1,nsrc_s
+
+         select case(di%lc%ht%two_phase_src_solid(n_s)%ptr%name)
+           
+           !the solid-liquid heat transfer source
+           case('solid_liquid_heat_transfer_rock_phase')
+             di%lc%ht%two_phase_src_solid(n_s)%ptr%val(i)=-ktp/Crs
+             
+           !the heat source from mineral dissolutiom  
+           case('mineral_dissolution_heat_sources')
+             Hs=0.0
+             nd=size(di%lc%ht%rock_md_src)
+             dissolution_loop: do n2_s=1,nd
+               Hs=Hs+di%lc%ht%rock_md_src(n2_s)%md_src%val(i)*di%lc%ht%rock_md_src(n2_s)%Enthalpy
+             end do dissolution_loop
+             di%lc%ht%two_phase_src_solid(n_s)%ptr%val(i)=Hs/Crs
+           case default
+             FLAbort("Solid_phase temperature heat transfer source "// di%lc%ht%two_phase_src_liquid(n_l)%ptr%name // " not found")
+         end select
+
+       end do src_loop_r
+
+     end do node_loop
+
+   end subroutine calculate_leach_heat_transfer_src
+
+   subroutine calculate_leach_rock_temperature(di)
+     type(darcy_impes_type), intent(inout) :: di
+
+     !local temperature
+     integer ::i, nsrc_s,n_s
+     real :: prts
+     type(scalar_field) :: src
+     
+     call allocate(src,di%pressure_mesh)
+     call zero(src)   
+     nsrc_s=size(di%lc%ht%two_phase_src_solid)
+
+     src_loop: do n_s=1, nsrc_s
+        call addto(src,di%lc%ht%two_phase_src_solid(n_s)%ptr)
+     end do src_loop
+
+     if (di%lc%ht%have_rock_temperature_src) call addto(src,di%lc%ht%rock_temperature_src)
+     
+     if (di%prt_is_constant) then
+       prts=1.0-di%porosity_cnt(1)
+     end if
+     
+     node_loop: do i=1,di%number_pmesh_node
+         if (.not. di%prt_is_constant) then
+           prts=1.0-di%porosity_pmesh%val(i)
+         end if
+
+         src%val(i)=src%val(i)*di%dt/prts
+
+     end do node_loop
+
+     !calculate the new rock temperature
+     call addto(di%lc%ht%rock_temperature,src)
+     
+     call deallocate(src)
+   end subroutine calculate_leach_rock_temperature 
+
+   subroutine calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di,f)
+       type(darcy_impes_type), intent(inout) :: di
+       integer, intent(in) :: f
+       
+       !local variables
+       integer :: i,n,nsrc
+       type(scalar_field) :: src
+
+       !for the liquid phase temperature heat transfer source
+       if (f==2) then
+         nsrc=size(di%lc%ht%two_phase_src_liquid)
+         call allocate(src,di%pressure_mesh)
+         call zero(src)
+
+         src_loop: do n=1,nsrc
+           call addto(src,di%lc%ht%two_phase_src_liquid(n)%ptr)
+         end do src_loop
+         !add leaching heat transfer source terms to the rhs of liquid temperature
+         call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, src)
+         call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
+
+         call deallocate(src)
+       end if
+
+       
+   end subroutine calculate_leach_heat_transfer_prog_Temperature_src_to_rhs
+
    !---------------------some accessory subroutines----------------------------------------
 
    subroutine cubic_spline_interpolation(a,b,c,d,x_data,x,y)
@@ -1056,7 +1398,7 @@ module darcy_impes_leaching_chemical_model
 
       n=size(x_data)
 
-      if (x<=x_data(1)) then
+      if (x<x_data(1)) then
         y=b(1)*(x-x_data(1))+a(1)
       else if (x>x_data(n)) then
         y=b(n)*(x-x_data(n))+a(n)

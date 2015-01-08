@@ -124,6 +124,8 @@ module darcy_impes_assemble_type
       type(darcy_impes_cv_options_type) :: sfield_cv_options
       !******For the Leaching chemical source term***LCai** 30 June 2014*****!
       type(leach_chemical_prog_sfield_src) :: lc_src
+      !for heat transfer src under temperature
+      type(leach_prog_sfield_heat_transfer_src) ::lh_src
       !*****Finish*******
 
    end type darcy_impes_generic_prog_sfield_type

@@ -1629,6 +1629,7 @@ contains
       
       ! calculate generic diagnostics - DO NOT ADD 'calculate_diagnostic_variables'
       call calculate_diagnostic_variables_new(all_state)
+
       
       ! ******* 22 Aug 2013 ****** LCai ***********************************
       ! check that is the immobile prog sfield exist
@@ -1664,15 +1665,7 @@ contains
       !*********************26 July 2013 LCai*****************************!
       ! calculate the Mobile saturations if MIM is used
       if (di%MIM_options%have_MIM_phase) call darcy_trans_MIM_assemble_and_solve_mobile_saturation(di)
-      
-      !*********************27 Aug 2014 LCai*****************************!
-      !calculate the chemical reaction term at the beginning of the time step
-      if (di%lc%have_leach_chem_model) then
-         call calculate_leaching_chemical_model(di)
-      end if
-      !*******************Finish*LCai************************************!
-      
-      
+      !***********end*******lcai**************************** 
       
       ! Calculate the non first phase pressure's, needs to be after the python fields
       call darcy_impes_calculate_non_first_phase_pressures(di)       
@@ -1700,6 +1693,22 @@ contains
       call copy_to_stored_values(di%state,"Old")
       call copy_to_stored_values(di%state,"Iterated")
       call relax_to_nonlinear(di%state)
+
+      !*********************27 Aug 2014 LCai*****************************!
+      ! **********Lcai*************leaching heat transfer model************
+      !calculate heat transfer before the chemistry is updated
+      !calculate the leaching heat transfer sources terms for the first time step as an explicit source term
+      !the rock temperature will not be calculated at this initialize stage
+      if ((have_option('/Leaching_chemical_model/heat_transfer_model')).and.(.not. di%lc%ht%heat_transfer_single)) then 
+         call calculate_leach_heat_transfer_src(di)
+      end if
+
+
+      !calculate the chemical reaction term at the beginning of the time step
+      if (di%lc%have_leach_chem_model) then 
+         call calculate_leaching_chemical_model(di)
+      end if
+      !*******************Finish*LCai************************************!
       
       ewrite(1,*) 'Finished initialising Darcy IMPES data'
       
@@ -2344,6 +2353,7 @@ contains
          ! *** Darcy IMPES Calculate the relperm and density first face values (depend on upwind direction) ***
          call darcy_impes_calculate_relperm_den_first_face_values(di)
          if (have_dual) call darcy_impes_calculate_relperm_den_first_face_values(di_dual)
+
          
          ! *** Solve the Darcy equations using IMPES in three parts ***
          call darcy_impes_assemble_and_solve_part_one(di, have_dual)
@@ -2358,7 +2368,20 @@ contains
          call darcy_impes_assemble_and_solve_part_three(di, have_dual)
          if (have_dual) call darcy_impes_assemble_and_solve_part_three(di_dual, have_dual)
                  
-         
+         ! calculate generic diagnostics - DO NOT ADD 'calculate_diagnostic_variables'
+         call calculate_diagnostic_variables_new(state, exclude_nonrecalculated = .true.)        
+
+         ! **********Lcai*************leaching heat transfer model*************
+         !calculate the heat transfer before the chemistry is updated
+         if ((have_option('/Leaching_chemical_model/heat_transfer_model')).and.(.not. di%lc%ht%heat_transfer_single)) then
+            !firstly, calculate the rock temperature at current time step based on the explicit source terms
+            call calculate_leach_rock_temperature(di)
+            !secondly, calculate the leaching heat transfer sources terms as explicit source terms for the next time step
+            call calculate_leach_heat_transfer_src(di)
+         end if
+         !**********end*********Lcai
+
+
          !*********11 Aug 2014 *****Lcai ******leaching chemical model************!
          !the chemical reaction terms are calculated after the ADE is calculated
          !and the chemical reaction terms of this time step are used as the explicit source terms in ADE of next time step
@@ -2368,8 +2391,6 @@ contains
          end if
          !*********finish****Lcai********Leaching chemical model
          
-         ! calculate generic diagnostics - DO NOT ADD 'calculate_diagnostic_variables'
-         call calculate_diagnostic_variables_new(state, exclude_nonrecalculated = .true.)
          
          ! *** Calculate the Darcy IMPES Velocity, Mobilities, Fractional flow and CFL fields
          !     needs to be after the python fields ***
