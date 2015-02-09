@@ -18,7 +18,8 @@ module darcy_impes_leaching_chemical_model
   use fefields, only: compute_cv_mass
 
   use darcy_impes_assemble_type, only: darcy_impes_type
-  
+
+
   implicit none
   private
   
@@ -45,7 +46,7 @@ module darcy_impes_leaching_chemical_model
      !local parameter
      type(vector_field), pointer :: position =>null()
      integer :: p,f,flc, ns, nd, nb,fb, stat,ndata,nshape(2),n_md,f_md
-     character(len=OPTION_PATH_LEN) :: option_path, reaction_name, path_l,path_md,md_name
+     character(len=OPTION_PATH_LEN) :: option_path, reaction_name, path_l,path_md,md_name,name_temp
         !---------------------allocate the fields in the chemical model-------------
         !for the solution phase reactions
         if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then           
@@ -290,9 +291,36 @@ module darcy_impes_leaching_chemical_model
 
                 
                 case('S0_dissolution')
+                  path_l = trim(option_path)//'::'//trim(reaction_name)
+                  path_l = trim(option_path)//'::'//trim(reaction_name)
+                  !get the name of the the scalar field used for H+ and liquid phase oxygen
+                  call get_option(trim(path_l)//'/o2_name',di%lc%dis%sulf%o2_name)
+                  call get_option(trim(path_l)//'/H_name',di%lc%dis%sulf%H_name)
+                  !get the name of the the scalar field used to calculate pH and Fe3 concentration
+                  call get_option(trim(path_l)//'/Dissolution_Algorithm/name',name_temp)
+                  !wether the S0 is dissolved with bacteria or not
+                  select case(trim(name_temp))
+                    case('Non-bio_leaching')
+                      di%lc%dis%sulf%bio = .false.
+                      !get the percentage of S0 dissolution
+                      call get_option(trim(path_l)//'/Dissolution_Algorithm'//'::'//trim(name_temp)//&
+                      '/percentage_of_dissolve', di%lc%dis%sulf%ps)
+                    case('bio_leaching')
+                     di%lc%dis%sulf%bio = .true.
+                     !not finish yet
+
+                    case default
+                      FLAbort("S0 dissolution algorithm" // trim(reaction_name) // " not found")
+                  end select
+                   
+                  
+                  di%lc%dis%sulf%S0 => extract_scalar_field(di%state(2), 'sulf_S0', stat=stat)
+                  if (.not. stat==0) then
+                    FLAbort('failed to extract the leaching reaction species named S0')
+                  end if
                   di%lc%dis%sulf%dcdt => extract_scalar_field(di%state(2), 'sulf_dS0_dt', stat=stat)
                   if (.not. stat==0) then
-                    FLAbort('failed to extract the leaching reaction named sulf_dS0_dt')
+                    FLAbort('failed to extract the leaching reaction named dS0_dt')
                   end if
                 
                 case default
@@ -635,8 +663,9 @@ module darcy_impes_leaching_chemical_model
               deallocate(di%lc%dis%pyri%exp_exrk)
 
            case('S0_dissolution')
+              nullify(di%lc%dis%sulf%S0)
               nullify(di%lc%dis%sulf%dcdt)
-              
+              di%lc%dis%sulf%bio = .false.
          end select
            
        end do
@@ -778,12 +807,9 @@ module darcy_impes_leaching_chemical_model
           
            
           node_loop: do i=1,di%number_pmesh_node
-            if (di%prt_is_constant) then
-             single_src%val(i)=single_src%val(i)/(di%porosity_cnt(1)*di%saturation(p)%ptr%val(i))
-            else 
-             single_src%val(i)=single_src%val(i)/(di%porosity_pmesh%val(i)*di%saturation(p)%ptr%val(i))
-            end if
-            
+
+            single_src%val(i)=single_src%val(i)/(di%porosity_pmesh%val(i)*di%saturation(p)%ptr%val(i))
+
             di%generic_prog_sfield(f)%lc_src%sfield_sol_src(n)%sfield%val(i)=single_src%val(i) !mole/m^3_solution               
           end do node_loop
           
@@ -843,7 +869,7 @@ module darcy_impes_leaching_chemical_model
       type(darcy_impes_type), intent(inout) :: di
       
       integer :: i
-      real :: T,ft
+      real :: T,ft, dt
       real, dimension(:), allocatable :: A !pre-factor of the arrhenius rate constant
       type(scalar_field), pointer :: rock_temperature
       !for mineral dissolution
@@ -854,14 +880,20 @@ module darcy_impes_leaching_chemical_model
            rock_temperature =>di%lc%ht%liquid_temperature
          end if
          ! Chalcopyrite oxidation 
+         if (di%lcsub%have_leach_subcycle) then
+           dt=di%lcsub%sub_dt
+         else
+           dt=di%dt
+         end if
          if (associated(di%lc%dis%chal%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
-                                          rock_temperature,di%number_pmesh_node,di%dt,di%lc%dis%chal,&
+                                          rock_temperature,di%number_pmesh_node,dt,di%lc%dis%chal,&
                                           di%saturation(2)%ptr)
          !pyrite dissolution
          if (associated(di%lc%dis%pyri%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
-                                          rock_temperature,di%number_pmesh_node,di%dt,di%lc%dis%pyri,&
+                                          rock_temperature,di%number_pmesh_node,dt,di%lc%dis%pyri,&
                                           di%saturation(2)%ptr)
-
+         !S0 dissolution
+         if (associated(di%lc%dis%sulf%dcdt)) call calculate_S0_dissolution(di)
          !finalize                                 
          nullify(rock_temperature)                                 
       end if
@@ -889,13 +921,9 @@ module darcy_impes_leaching_chemical_model
             call calculate_solution_phase_arrhenius_type_reaction_rate(di%state,&
                  A,di%lc%ht%liquid_temperature,di%number_pmesh_node,di%lc%sol%feox) 
             !change the mole/(m^3 solution)/s to mole/(m^3 heap)/s
-            if (di%prt_is_constant) then
-              call scale(di%lc%sol%feox%dcdt,di%porosity_cnt(1))
-            else
-              call scale(di%lc%sol%feox%dcdt,di%porosity_pmesh)
+       
+            call scale(di%lc%sol%feox%dcdt,di%porosity_pmesh)
             
-            end if
-
             call scale(di%lc%sol%feox%dcdt,di%saturation(2)%ptr)
 
             deallocate(A)
@@ -1116,6 +1144,45 @@ module darcy_impes_leaching_chemical_model
         end subroutine calculate_arrhenius_reaction_rate_constant 
 
    end subroutine calculate_leaching_chemical_model
+   
+   subroutine calculate_S0_dissolution(di)
+     type(darcy_impes_type), intent(inout) :: di
+     type(scalar_field), pointer :: o2
+     real ::dS0dt, dS0 
+     integer :: i, stat
+     
+     !only dissolve when there are enough dissolved oxygen
+     o2 => extract_scalar_field(di%state(2),trim(di%lc%dis%sulf%o2_name), stat=stat)
+         if (.not. stat==0) then
+         FLAbort('failed to extract the scalar field of liquid  phase oxygen to calculate S0 dissolution')
+     end if
+
+     if (di%lc%dis%sulf%bio) then
+       !not finished yet
+     else
+       node_loop: do i=1,di%number_pmesh_node
+         !the dissolved S0 from chalcopyrite dissolution
+         dS0dt = 2.0*di%lc%dis%chal%dcdt%val(i)*di%lc%dis%sulf%ps
+         !only dissolve when there are enough dissolved oxygen
+         if ((o2%val(i)+1.5*dS0dt)>=0.0) then
+           !calculate the S0 dissolution, dS0/dt  
+           !Assumed percentage of S0 generated by Chalcopyrite dissolution is dissolved to SO4
+           ! the new calculated dCuFeS2/dt in mole/m^3_heap/s * the percentage of dissolution
+           di%lc%dis%sulf%dcdt%val(i) = dS0dt
+
+           !calculate the current S0
+           dS0 = -2.0*di%lc%dis%chal%dcdt%val(i)*(1.0-di%lc%dis%sulf%ps)
+           di%lc%dis%sulf%S0%val(i) = di%lc%dis%sulf%S0%val(i)+dS0
+         else
+           dS0 = -2.0*di%lc%dis%chal%dcdt%val(i)
+           di%lc%dis%sulf%S0%val(i) = di%lc%dis%sulf%S0%val(i)+dS0
+         end if
+
+       end do node_loop
+     end if
+     
+      
+   end subroutine calculate_S0_dissolution
 
 
    subroutine calculate_jarosite_precipitation(di)
@@ -1150,16 +1217,12 @@ module darcy_impes_leaching_chemical_model
          F=DLOG10(F)
          rhs=-1.4319*pH+0.8679
          if (F>rhs) then
-           dpre=(-2.0e-06)*Fe3%val(i)
-           di%lc%sol%jaro%js%val(i)=di%lc%sol%jaro%js%val(i)+dpre*(-1.0/3.0)
+           dpre=(-2.0e-06)*Fe3%val(i)           
            !change the unit from (mole/m^3 solution/s) to ((mole/m^3 heap/s)
-           if (di%prt_is_constant) then
-             dpre=di%porosity_cnt(1)*di%saturation(2)%ptr%val(i)*dpre
-           else
-             dpre=di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)*dpre
-           end if
+           dpre=di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)*dpre
+           di%lc%sol%jaro%js%val(i)=di%lc%sol%jaro%js%val(i)+dpre*(-1.0/3.0)
          else
-          dpre=0.0
+           dpre=0.0
          end if
          
          di%lc%sol%jaro%dcdt%val(i)=dpre
@@ -1213,14 +1276,9 @@ module darcy_impes_leaching_chemical_model
           end if
 
           !calculate fluid hold-up
-          if (di%prt_is_constant) then
-            theta1=di%porosity_cnt(1)*di%saturation(1)%ptr%val(i)
-            theta2=di%porosity_cnt(1)*di%saturation(2)%ptr%val(i)
-          else
-            theta1=di%porosity_pmesh%val(i)*di%saturation(1)%ptr%val(i)
-            theta2=di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)
-          end if
-          
+          theta1=di%porosity_pmesh%val(i)*di%saturation(1)%ptr%val(i)
+          theta2=di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)
+
 
           !calculate the equilibrium constant ft, o2=og*ft
           T=Tl%val(i)
@@ -1261,14 +1319,9 @@ module darcy_impes_leaching_chemical_model
      !count the number of sources term for solid temperature
      nsrc_s=size(di%lc%ht%two_phase_src_solid)
      nsrc_l=size(di%lc%ht%two_phase_src_liquid)
-     if (di%prt_is_constant) then
-        prts=1.0-di%porosity_cnt(1)
-     end if
 
      node_loop: do i=1,di%number_pmesh_node
-       if (.not. di%prt_is_constant) then
-         prts=1.0-di%porosity_pmesh%val(i)
-       end if
+       prts=1.0-di%porosity_pmesh%val(i)
        Crs=di%lc%ht%rock_cp%val(i)*di%lc%ht%rock_density%val(i)
        Crl=di%lc%ht%liquid_cp%val(i)*di%density(2)%ptr%val(i)
        dTsl=di%lc%ht%rock_temperature%val(i)-di%lc%ht%liquid_temperature%val(i)
@@ -1282,7 +1335,6 @@ module darcy_impes_leaching_chemical_model
            !the solid-liquid heat transfer source
            case('solid_liquid_heat_transfer_liquid_phase')
              di%lc%ht%two_phase_src_liquid(n_l)%ptr%val(i)=ktp/Crl
-             
            case('solution_phase_heat_sources')
              Hr=0.0
              nr=size(di%lc%ht%liquid_sr_src)
@@ -1328,7 +1380,7 @@ module darcy_impes_leaching_chemical_model
 
      !local temperature
      integer ::i, nsrc_s,n_s
-     real :: prts
+     real :: prts, dt
      type(scalar_field) :: src
      
      call allocate(src,di%pressure_mesh)
@@ -1341,16 +1393,17 @@ module darcy_impes_leaching_chemical_model
 
      if (di%lc%ht%have_rock_temperature_src) call addto(src,di%lc%ht%rock_temperature_src)
      
-     if (di%prt_is_constant) then
-       prts=1.0-di%porosity_cnt(1)
+     if (di%lcsub%have_leach_subcycle) then
+           dt=di%lcsub%sub_dt
+     else
+           dt=di%dt
      end if
      
      node_loop: do i=1,di%number_pmesh_node
-         if (.not. di%prt_is_constant) then
-           prts=1.0-di%porosity_pmesh%val(i)
-         end if
 
-         src%val(i)=src%val(i)*di%dt/prts
+         prts=1.0-di%porosity_pmesh%val(i)
+
+         src%val(i)=src%val(i)*dt/prts
 
      end do node_loop
 
@@ -1360,30 +1413,24 @@ module darcy_impes_leaching_chemical_model
      call deallocate(src)
    end subroutine calculate_leach_rock_temperature 
 
-   subroutine calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di,f)
+   subroutine calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di)
        type(darcy_impes_type), intent(inout) :: di
-       integer, intent(in) :: f
        
        !local variables
        integer :: i,n,nsrc
        type(scalar_field) :: src
-
        !for the liquid phase temperature heat transfer source
-       if (f==2) then
-         nsrc=size(di%lc%ht%two_phase_src_liquid)
-         call allocate(src,di%pressure_mesh)
-         call zero(src)
+       nsrc=size(di%lc%ht%two_phase_src_liquid)
+       call allocate(src,di%pressure_mesh)
+       call zero(src)
+       src_loop: do n=1,nsrc         
+        call addto(src,di%lc%ht%two_phase_src_liquid(n)%ptr)
+       end do src_loop
+       !add leaching heat transfer source terms to the rhs of liquid temperature
+       call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, src)
+       call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
 
-         src_loop: do n=1,nsrc
-           call addto(src,di%lc%ht%two_phase_src_liquid(n)%ptr)
-         end do src_loop
-         !add leaching heat transfer source terms to the rhs of liquid temperature
-         call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, src)
-         call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
-
-         call deallocate(src)
-       end if
-
+       call deallocate(src)
        
    end subroutine calculate_leach_heat_transfer_prog_Temperature_src_to_rhs
 
@@ -1398,7 +1445,7 @@ module darcy_impes_leaching_chemical_model
 
       n=size(x_data)
 
-      if (x<x_data(1)) then
+      if (x<=x_data(1)) then
         y=b(1)*(x-x_data(1))+a(1)
       else if (x>x_data(n)) then
         y=b(n)*(x-x_data(n))+a(n)

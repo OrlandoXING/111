@@ -2899,11 +2899,70 @@ the value of this source term is based on unit: mole/m^3_heap</a:documentation>
     <optional>
       <element name="Leaching_chemical_model">
         <a:documentation>this is the leaching chemical model options</a:documentation>
+        <optional>
+          <ref name="leaching_chemical_dt_subcycle_options"/>
+        </optional>
         <ref name="leaching_mineral_dissolution_options"/>
         <ref name="leaching_solution_phase_options"/>
         <ref name="leaching_heat_transfer_model"/>
       </element>
     </optional>
+  </define>
+  <define name="leaching_chemical_dt_subcycle_options">
+    <element name="leaching_chemical_dt_subcycle">
+      <a:documentation>The dt subcycling for the Advection Diffusion equation to relax the chemistry reactions</a:documentation>
+      <element name="number_of_subcycling">
+        <ref name="integer"/>
+      </element>
+      <element name="scalar_field">
+        <attribute name="rank">
+          <a:documentation>the subcycling dt to calculate advection diffusion equation</a:documentation>
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>subcycling_dt</value>
+        </attribute>
+        <element name="diagnostic">
+          <ref name="mesh_choice_pressure"/>
+          <ref name="darcy_impes_internal_algorithm"/>
+          <ref name="darcy_impes_diagnostic_scalar_field"/>
+          <optional>
+            <ref name="darcy_impes_recalculation_options"/>
+          </optional>
+          <optional>
+            <element name="dynamic_dt">
+              <a:documentation>calculate the new subcycling dt which is larger than the base subcycling dt
+when the extractions of chalcopyrite are large enough
+and the reactions become slow
+the maximun number of subcycling will be the setting in the previous option</a:documentation>
+              <element name="minimum_extraction_to_start">
+                <a:documentation>the minimum extraction of the chalcopyrite
+to start calculating the dynamic dt</a:documentation>
+                <ref name="real"/>
+              </element>
+              <element name="master_field">
+                <a:documentation>The field which master the dynamic dt
+the dynamic dt is calculated through the change rate
+of the master field.
+write down the phase and name of the field                           </a:documentation>
+                <element name="phase">
+                  <ref name="integer"/>
+                </element>
+                <element name="name">
+                  <data type="string" datatypeLibrary=""/>
+                </element>
+                <element name="weighting_factor">
+                  <a:documentation>the weighting factor (beta) which will limit the dynamic dt
+weighting factor (beta) should be between 0 to 1
+dt_sub&lt;=beta*C_mast_field/[dC_mast_field/dt]</a:documentation>
+                  <ref name="real"/>
+                </element>
+              </element>
+            </element>
+          </optional>
+        </element>
+      </element>
+    </element>
   </define>
   <define name="leaching_mineral_dissolution_options">
     <optional>
@@ -2976,6 +3035,24 @@ mole/s per m^3 of heap</a:documentation>
                 <value>S0_dissolution</value>
               </attribute>
               <element name="scalar_field">
+                <a:documentation>The molar concentration of jarosite,
+mole per m^3 of liquid solution</a:documentation>
+                <attribute name="rank">
+                  <value>0</value>
+                </attribute>
+                <attribute name="name">
+                  <value>S0</value>
+                </attribute>
+                <element name="diagnostic">
+                  <ref name="mesh_choice_pressure"/>
+                  <ref name="darcy_impes_internal_algorithm"/>
+                  <ref name="darcy_impes_diagnostic_scalar_field"/>
+                  <optional>
+                    <ref name="darcy_impes_recalculation_options"/>
+                  </optional>
+                </element>
+              </element>
+              <element name="scalar_field">
                 <attribute name="rank">
                   <a:documentation>This is the concentraction change rate of S0
 mole/s per m^3 of heap</a:documentation>
@@ -2992,6 +3069,35 @@ mole/s per m^3 of heap</a:documentation>
                     <ref name="darcy_impes_recalculation_options"/>
                   </optional>
                 </element>
+              </element>
+              <choice>
+                <group>
+                  <a:documentation>Choose the algorithm to calculate S0                     </a:documentation>
+                  <element name="Dissolution_Algorithm">
+                    <a:documentation>The dissolution without bacteria, 
+please specify the percentage of the S0 to dissolve,noramlly 0.05 to 0.2 </a:documentation>
+                    <attribute name="name">
+                      <value>Non-bio_leaching</value>
+                    </attribute>
+                    <element name="percentage_of_dissolve">
+                      <ref name="real"/>
+                    </element>
+                  </element>
+                </group>
+                <element name="Dissolution_Algorithm">
+                  <a:documentation>The dissolution with bacteria</a:documentation>
+                  <attribute name="name">
+                    <value>bio_leaching</value>
+                  </attribute>
+                </element>
+              </choice>
+              <element name="o2_name">
+                <a:documentation>The scalar filed name for liquid oxygen in Phase 1</a:documentation>
+                <data type="string" datatypeLibrary=""/>
+              </element>
+              <element name="H_name">
+                <a:documentation>The scalar filed name for H+ in phase 2</a:documentation>
+                <data type="string" datatypeLibrary=""/>
               </element>
             </element>
           </choice>

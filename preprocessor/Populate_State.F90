@@ -1538,11 +1538,13 @@ contains
          !populate the fields for the leaching chemical model 
          !and the leaching source terms for prog sfield
          type(state_type), intent(inout) :: state
+         type(scalar_field) :: field
+         type(mesh_type), pointer :: mesh
          character(len=OPTION_PATH_LEN) :: path, path2
          character(len=OPTION_PATH_LEN) :: field_name
     
          !local variable
-         character(len=OPTION_PATH_LEN) :: state_path_lc,reaction_path, reaction_name, prefix
+         character(len=OPTION_PATH_LEN) :: state_path_lc,reaction_path, reaction_name, prefix,mesh_name
          integer :: nfields, nreaction, nfields2, jr, j
          !--------For solution phase reaction
          if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then
@@ -1678,7 +1680,23 @@ contains
                 end do
              end do
            end if       
-         end if         
+         end if
+
+         !for leaching dynamic subcycling
+         if (have_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle')) then
+           path=trim('/Leaching_chemical_model/leaching_chemical_dt_subcycle/scalar_field::subcycling_dt')
+           call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/scalar_field::subcycling_dt/&
+               &diagnostic/mesh[0]/name', mesh_name)
+           mesh => extract_mesh(state, trim(mesh_name))
+           call allocate(field, mesh, name='subcycling_dt', &
+                      field_type=FIELD_TYPE_CONSTANT)
+           call zero(field)
+           field%option_path=trim('/Leaching_chemical_model/leaching_chemical_dt_subcycle/scalar_field::subcycling_dt')
+           call insert(state, field, field%name)
+           call deallocate(field)
+           nullify(mesh)
+         end if
+
      end subroutine allocate_and_insert_leaching_model
            
 

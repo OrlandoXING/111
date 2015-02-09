@@ -107,7 +107,6 @@ program Darcy_IMPES
    use darcy_impes_leaching_chemical_model
    use darcy_impes_assemble_type
 
-
    implicit none
 
 #ifdef HAVE_PETSC
@@ -147,6 +146,7 @@ program Darcy_IMPES
 
    logical :: timing
    real :: time1, time2
+   
 
    type(state_type), dimension(:), pointer :: state => null()    
    
@@ -336,7 +336,7 @@ program Darcy_IMPES
                                   solve_dual_pressure, &
                                   this_is_dual = .false.)
    end if
-   
+ 
    ! *** Darcy impes Adapt time at first time step ***
    if(di%adaptive_dt_options%have .and. di%adaptive_dt_options%at_first_dt) then
       call darcy_impes_adaptive_timestep()
@@ -398,7 +398,7 @@ program Darcy_IMPES
    
    ! write initial stat file diagnostics
    if(have_option("/io/stat/output_at_start")) call write_diagnostics(state, current_time, dt, timestep, not_to_move_det_yet=.true.)
-
+   
    not_to_move_det_yet=.false.
          
    ! ******************************
@@ -457,15 +457,16 @@ program Darcy_IMPES
       call darcy_impes_copy_to_old(di)      
       if (have_dual) call darcy_impes_copy_to_old(di_dual)
       
+      if (size(di%MIM_options%immobile_prog_sfield) > 0 .or. di%lc%have_leach_chem_model) then
+        call darcy_trans_leaching_copy_to_old(di)
+      end if
+      
       ! *** Darcy IMPES evaluate pre solve system fields - BCs, prescribed fields and gravity ***
       call darcy_impes_evaluate_pre_solve_fields()
            
       ! ****** 22 Aug 2013 ******** LCai********************************
       !calculate the porosity used to solve the Mobile-immobile model
-      if (size(di%MIM_options%immobile_prog_sfield) > 0 .or. di%lc%have_leach_chem_model) then
-           if (di%prt_is_constant) then
-             di%porosity_cnt = ele_val(di%porosity, 1)
-           else
+      if (size(di%MIM_options%immobile_prog_sfield) > 0 .or. di%lc%have_leach_chem_model) then           
              call zero(di%porosity_pmesh)
              ! then do galerkin projection to project the porosity on elementwise mesh to pressure mesh
              !note that this now only support the porosity which is originally based on dg elemernwise mesh
@@ -476,7 +477,6 @@ program Darcy_IMPES
              else
                FLExit("the mesh of porosity should be elementwise dg")
              end if
-           end if
        end if
        ! ************Finish *** LCai **********************************
       ! Solve the system of equations with a non linear iteration
@@ -574,6 +574,11 @@ program Darcy_IMPES
    if (di%lc%have_leach_chem_model) then
      call finalize_leaching_chemical_model(di)
    end if
+   !****03Mar2015***lcai*******leaching_subcycle_temporary
+   if (di%lcsub%have_leach_subcycle) then
+    call leaching_prog_sfield_subcycle_finalize(di)
+   end if
+
 
    ! ***** Finalise dual permeability model *****
    if (have_dual) then
@@ -844,18 +849,6 @@ contains
       !***NOT**USED**allocate(di%MIM_options%have_immobile_prog_sfield(di%number_phase))
       !**********Finish**************LCai***************************************! 
       
-
-      ! *****************22 Aug 2013 ***** LCai *****************************************
-      !check wether the porosity is set to be constant or not
-      !Mind that since the bug inside 'allocate_and_insert_scalar_field'
-      !which is using 'is_constant=allocate_tensor_field_as_constant' inside the subrouting for scalar field
-      !it will never return the scalar field as Field_tyoe_constant, so we need to check that explicitly
-      di%prt_is_constant = .false. !this is to check the porosity 
-      if (option_count(trim(di%porosity%option_path) // "/prescribed/value") == 1) then
-         di%prt_is_constant = have_option(trim(di%porosity%option_path) // "/prescribed/value[0]/constant")
-      end if
-      ewrite(1,*) 'Is porosity a constant?', di%prt_is_constant
-      !****************************Finish*** LCai ***************************************
       
       if (have_dual) then
          allocate(di%transmissibility_lambda_dual(di%number_phase))
@@ -1637,10 +1630,6 @@ contains
       !constant or projected to pmesh
        if (size(di%MIM_options%immobile_prog_sfield) > 0 .or.&
                have_option('/Leaching_chemical_model')) then   
-         if (di%prt_is_constant) then
-           di%porosity_cnt = ele_val(di%porosity, 1)
-             
-         else
            call allocate(di%porosity_pmesh, di%pressure_mesh)
            call allocate(di%old_porosity_pmesh, di%pressure_mesh)
            call zero(di%old_porosity_pmesh)
@@ -1654,7 +1643,6 @@ contains
            else
               FLExit("the mesh of porosity should be elementwise dg")
            end if
-         end if
        end if
 
       ! *********** Finish **********LCai *********************************
@@ -1693,6 +1681,14 @@ contains
       call copy_to_stored_values(di%state,"Old")
       call copy_to_stored_values(di%state,"Iterated")
       call relax_to_nonlinear(di%state)
+      
+      
+      call leaching_prog_sfield_subcycle_initialize(di)
+      if (di%lcsub%have_leach_subcycle) then 
+        call calculate_leach_prog_sfield_subcycle_terms(di)
+        !call darcy_trans_leaching_sub_copy_to_iterated(di)       
+        call darcy_trans_leaching_sub_copy_to_old(di)
+      end if
 
       !*********************27 Aug 2014 LCai*****************************!
       ! **********Lcai*************leaching heat transfer model************
@@ -1932,11 +1928,9 @@ contains
        end if
        deallocate(di%MIM_options%immobile_prog_sfield) 
       ! ***** Finish **** LCai **************************** 
-
-      if (.not.(di%prt_is_constant)) then 
-         di%prt_is_constant=.false.       
-         call deallocate(di%porosity_pmesh)
-         call deallocate(di%old_porosity_pmesh)
+      if (size(di%MIM_options%immobile_prog_sfield) > 0 .or. have_option('/Leaching_chemical_model')) then 
+        call deallocate(di%porosity_pmesh)
+        call deallocate(di%old_porosity_pmesh)
       end if
       !*****************************LCai 25 July & 08 & 22 Aug 2013******************!
       ! Deallocate the MIM model

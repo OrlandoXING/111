@@ -2725,13 +2725,62 @@ darcy_impes_Leaching_chemical_model_options =
     (
       ##this is the leaching chemical model options
       element Leaching_chemical_model{
+           leaching_chemical_dt_subcycle_options?,
            leaching_mineral_dissolution_options,
            leaching_solution_phase_options,
            leaching_heat_transfer_model
      }?
     )
 
-
+leaching_chemical_dt_subcycle_options=
+    (
+     ##The dt subcycling for the Advection Diffusion equation to relax the chemistry reactions
+     element leaching_chemical_dt_subcycle {      
+         element number_of_subcycling {integer},
+         element scalar_field {
+            ( 
+             ##the subcycling dt to calculate advection diffusion equation
+             attribute rank { "0" },
+             attribute name {"subcycling_dt"}, 
+             element diagnostic {
+                                 mesh_choice_pressure,
+                                 darcy_impes_internal_algorithm,
+                                 darcy_impes_diagnostic_scalar_field,
+                                 darcy_impes_recalculation_options?,
+                                 (
+                                  ##calculate the new subcycling dt which is larger than the base subcycling dt
+                                  ##when the extractions of chalcopyrite are large enough
+                                  ##and the reactions become slow
+                                  ## the maximun number of subcycling will be the setting in the previous option
+                                 element dynamic_dt{
+                                      (
+                                        ##the minimum extraction of the chalcopyrite
+                                        ##to start calculating the dynamic dt
+                                        element minimum_extraction_to_start {real}
+                                                                  ),
+                                       ( 
+                                        ##The field which master the dynamic dt
+                                        ##the dynamic dt is calculated through the change rate
+                                        ##of the master field.
+                                        ##write down the phase and name of the field                           
+                                        element master_field {
+                                           element phase {integer},
+                                           element name {string},
+                                           (
+                                            ##the weighting factor (beta) which will limit the dynamic dt
+                                            ##weighting factor (beta) should be between 0 to 1
+                                            ## dt_sub<=beta*C_mast_field/[dC_mast_field/dt]
+                                           element weighting_factor {real}
+                                           )
+                                          }
+                                         )
+                                        }?                      
+                                       )
+                                   }
+                                  )                                  
+                            } 
+                          }     
+                      )
 leaching_mineral_dissolution_options =
     (
      ##this is the mineral dissolution option for the leaching chemical model
@@ -2785,7 +2834,22 @@ leaching_mineral_dissolution_options =
               
               element reaction{
                  attribute name {"S0_dissolution"},
-                 element scalar_field {
+                   (
+                      ##The molar concentration of jarosite,
+                      ##mole per m^3 of liquid solution
+                      element scalar_field {                               
+                               attribute rank { "0" },
+                               attribute name {"S0"},
+                               element diagnostic {
+                                          mesh_choice_pressure,
+                                          darcy_impes_internal_algorithm,
+                                          darcy_impes_diagnostic_scalar_field,
+                                          darcy_impes_recalculation_options?
+                                      }
+                              }    
+                       ),                 
+                   (
+                     element scalar_field {
                                ##This is the concentraction change rate of S0
                                ##mole/s per m^3 of heap
                            attribute rank { "0" },
@@ -2797,7 +2861,37 @@ leaching_mineral_dissolution_options =
                                      darcy_impes_recalculation_options?
                              } 
                           }
-                       }
+                       ),
+                   (
+                     ##Choose the algorithm to calculate S0                     
+                    (
+                      ##The dissolution without bacteria, 
+                      ##please specify the percentage of the S0 to dissolve,noramlly 0.05 to 0.2 
+                       element Dissolution_Algorithm {
+                       attribute name {"Non-bio_leaching"},
+                       element percentage_of_dissolve { real
+                                                            }
+                                                     }       
+                    )|
+
+                    (
+                      ##The dissolution with bacteria
+                         element Dissolution_Algorithm {                       
+                         attribute name {"bio_leaching"}
+                           }
+                        ) 
+                      ),
+                      
+                    (    
+                    ##The scalar filed name for liquid oxygen in Phase 1
+                      element o2_name {string }   
+                   ),   
+
+                  (    
+                    ##The scalar filed name for H+ in phase 2
+                      element H_name {string }    
+                       )  
+                     }
              )*
 
          }?

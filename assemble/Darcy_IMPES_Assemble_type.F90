@@ -279,9 +279,7 @@ module darcy_impes_assemble_type
 
       type(scalar_field) :: porosity_pmesh ! the porosity based on pressure mesh
       type(scalar_field) :: old_porosity_pmesh
-      real, dimension(1) :: porosity_cnt !constant value for porosity as a constant
-      real, dimension(1) :: old_porosity_cnt
-      logical :: prt_is_constant= .false. !is the porosity a constant
+      type(leach_chemical_prog_sfield_subcycling) :: lcsub !leaching subcycling term
      
       !***********Finish******************LCai **********************************************
       
