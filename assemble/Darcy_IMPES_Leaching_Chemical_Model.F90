@@ -29,7 +29,9 @@ module darcy_impes_leaching_chemical_model
             calculate_leaching_chemical_model, &
             calculate_leach_heat_transfer_prog_Temperature_src_to_rhs, &
             calculate_leach_heat_transfer_src, &
-            calculate_leach_rock_temperature
+            calculate_leach_rock_temperature, &
+            add_leach_chemical_prog_src_linearization_to_lhs_rhs, &
+            darcy_trans_heat_transfer_prog_src_linearization_to_lhs_rhs
   
        
   
@@ -521,12 +523,26 @@ module darcy_impes_leaching_chemical_model
           option_path=di%generic_prog_sfield(f)%sfield%option_path
           p=di%generic_prog_sfield(f)%phase
           !---check for heat transfer source under temperature field
+          !check the source linearization
+          if (have_option(trim(option_path)//'/prognostic/leaching_temperature_sources/Source_Linearization')) then
+             di%generic_prog_sfield(f)%lh_src%src_linear%have=.true.
+          else
+             di%generic_prog_sfield(f)%lh_src%src_linear%have=.false.
+          end if
+
+          if (have_option(trim(option_path)//'/prognostic/LeachingChemicalSourceTerm/Source_Linearization')) then
+            di%generic_prog_sfield(f)%lc_src%src_linear%have=.true.
+          else
+            di%generic_prog_sfield(f)%lc_src%src_linear%have=.false.
+          end if
+
+          !---check for heat transfer source under temperature field
           ns=option_count(trim(option_path)//'/prognostic/leaching_temperature_sources/heat_transfer_sources/scalar_field')
           if (.not. ns==0) then
             if (di%lc%ht%heat_transfer_single) then
               FLAbort('Cannot use the single heat transfer model to calculate the solid-liquid heat transfer term under the temperature of phase'// int2str(f) )
             end if
-
+      
             di%generic_prog_sfield(f)%lh_src%have_heat_src=.true.
           else
             di%generic_prog_sfield(f)%lh_src%have_heat_src=.false.
@@ -674,6 +690,8 @@ module darcy_impes_leaching_chemical_model
 
      !deallocate leaching prognostic source field 
      do f=1, size(di%generic_prog_sfield)
+       di%generic_prog_sfield(f)%lh_src%src_linear%have=.false.
+       di%generic_prog_sfield(f)%lc_src%src_linear%have=.false.
        if (di%generic_prog_sfield(f)%lh_src%have_heat_src) &
          di%generic_prog_sfield(f)%lh_src%have_heat_src=.false.
 
@@ -1433,6 +1451,223 @@ module darcy_impes_leaching_chemical_model
        call deallocate(src)
        
    end subroutine calculate_leach_heat_transfer_prog_Temperature_src_to_rhs
+   
+   subroutine darcy_trans_heat_transfer_prog_src_linearization_to_lhs_rhs(di,f)
+      type(darcy_impes_type), intent(inout) :: di
+      integer, intent(in) :: f
+
+      !local variables
+      integer :: i,n,nsrc
+      type(scalar_field) :: src_p,src_n,src_linear
+      logical :: have_src_p, have_src_n
+
+      have_src_n=.false.
+      have_src_p=.false.
+
+      nsrc=size(di%lc%ht%two_phase_src_liquid)
+      call allocate(src_p,di%pressure_mesh)
+      call allocate(src_n,di%pressure_mesh)
+      call zero(src_p)
+      call zero(src_n)
+
+      src_loop: do n=1,nsrc
+        if (minval(di%lc%ht%two_phase_src_liquid(n)%ptr%val)<0.0) then
+          !add to nagtive source
+          have_src_n=.true.
+          call addto(src_n,di%lc%ht%two_phase_src_liquid(n)%ptr)
+        else
+          !add to positive source
+          have_src_p=.true.
+          call addto(src_p,di%lc%ht%two_phase_src_liquid(n)%ptr)
+        end if
+      end do src_loop
+
+      !add positive leaching heat transfer source terms to the rhs of liquid temperature
+      if (have_src_p) then
+        call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, src_p)
+        call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
+      end if
+
+      !linearize negative leaching heat transfer source terms and add to the lhs of liquid temperature
+      if (have_src_n) then
+         call allocate(src_linear,di%pressure_mesh)
+         call zero(src_linear)
+         
+         node_loop: do i=1,di%number_pmesh_node
+           if (di%generic_prog_sfield(f)%sfield%val(i)<=1.0D-15) then
+              src_linear%val(i)=0.0
+           else
+              src_linear%val(i)=src_n%val(i)/di%generic_prog_sfield(f)%sfield%val(i)
+           end if
+         end do node_loop
+
+         call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, src_linear)
+         call addto(di%lhs, di%cv_mass_pressure_mesh_with_source)
+         call deallocate(src_linear)
+      end if
+
+      call deallocate(src_p)
+      call deallocate(src_n)
+
+   end subroutine darcy_trans_heat_transfer_prog_src_linearization_to_lhs_rhs
+
+   subroutine add_leach_chemical_prog_src_linearization_to_lhs_rhs(di,f)
+      type(darcy_impes_type), intent(inout) :: di
+      integer, intent(in) :: f
+   
+      !local variables
+      type(scalar_field) :: leach_src_p,leach_src_n, single_src,leach_src_linear
+      integer :: n,p,i
+      real :: s_factor !the stoichemistry factor
+      character(len=FIELD_NAME_LEN) :: lc_name
+      type(scalar_field), pointer :: src => null()
+      logical :: have_src_p, have_src_n
+      
+      have_src_n=.false.
+      have_src_p=.false.
+      
+      call allocate(leach_src_p,di%pressure_mesh)
+      call zero(leach_src_p)
+      
+      call allocate(leach_src_n,di%pressure_mesh)
+      call zero(leach_src_n)
+      
+      call allocate(single_src,di%pressure_mesh)
+      
+      !for the solution phase reactions
+      if (di%generic_prog_sfield(f)%lc_src%have_sol_src) then
+        do n=1, size(di%generic_prog_sfield(f)%lc_src%sfield_sol_src)
+           lc_name = di%generic_prog_sfield(f)%lc_src%sfield_sol_src(n)%lc_name
+           s_factor = di%generic_prog_sfield(f)%lc_src%sfield_sol_src(n)%sto_factor
+           call zero(single_src)
+           
+           select case(trim(lc_name))
+             case("Ferrous_Oxidation")
+               if (.not. associated(di%lc%sol%feox%dcdt)) &
+               FLAbort('Ferrous_Oxidation is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field') 
+               src => di%lc%sol%feox%dcdt     
+           
+             case('Jarosite_Precipitation')
+               if (.not. associated(di%lc%sol%jaro%dcdt)) &
+               FLAbort('Jarosite_Precipitation is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')  
+               src => di%lc%sol%jaro%dcdt
+           
+             case('Oxygen_dissolution_liquid_phase') 
+               if (.not. associated(di%lc%sol%oxdi%dcdt)) &
+               FLAbort('Oxygen_dissolution is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')
+               cycle !calculate elsewhere, in the calculate oxygen dissolution subroutine
+      
+             case('Oxygen_dissolution_gas_phase')
+               if (.not. associated(di%lc%sol%oxdi%dcdt)) &
+               FLAbort('Oxygen_dissolution is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')
+               cycle !calculate elsewhere, in the calculate oxygen dissolution subroutine
+      
+             case default
+               FLAbort("Leaching chemical algorithm " // trim(lc_name) // " not found")
+           end select
+           
+           call addto(single_src,src,s_factor) !addto the chemical source term with scale of the stoichemistry factor
+           
+           if (minval(single_src%val)<0.0) then
+             !add to nagtive source
+             have_src_n=.true.
+             call addto(leach_src_n, single_src)
+           else
+             !add to positive source
+             have_src_p=.true.
+             call addto(leach_src_p, single_src)
+           end if
+           
+           p=di%generic_prog_sfield(f)%phase
+           
+           node_loop: do i=1,di%number_pmesh_node
+      
+             single_src%val(i)=single_src%val(i)/(di%porosity_pmesh%val(i)*di%saturation(p)%ptr%val(i))
+      
+             di%generic_prog_sfield(f)%lc_src%sfield_sol_src(n)%sfield%val(i)=single_src%val(i) !mole/m^3_solution               
+           end do node_loop
+      
+        end do
+      
+      end if
+      
+      !for the mineral dissolution ractions
+      if (di%generic_prog_sfield(f)%lc_src%have_dis_src) then
+      
+        do n=1, size(di%generic_prog_sfield(f)%lc_src%sfield_dis_src)
+           lc_name = di%generic_prog_sfield(f)%lc_src%sfield_dis_src(n)%lc_name
+           s_factor = di%generic_prog_sfield(f)%lc_src%sfield_dis_src(n)%sto_factor
+           call zero(single_src)
+        
+           select case(trim(lc_name))
+              case("CuFeS2_oxidation_aqueous_ferric_sulfate")
+                if (.not. associated(di%lc%dis%chal%dcdt)) &
+                FLAbort('CuFeS2_oxidation_aqueous_ferric_sulfate is turned off in the leaching chemical model,while its source term is turned on under the prognostic scaler field')
+                src => di%lc%dis%chal%dcdt
+      
+              case('FeS2_oxidation_aqueous_ferric_sulfate')
+                if (.not. associated(di%lc%dis%pyri%dcdt)) &
+                FLAbort('FeS2_oxidation_aqueous_ferric_sulfate is turned off in the leaching chemical model, while its source term is turned on under the prognostic scaler field')
+                src => di%lc%dis%pyri%dcdt
+      
+              case('S0_dissolution')
+                if (.not. associated(di%lc%dis%sulf%dcdt)) &
+                FLAbort('S0_dissolution is turned off in the leaching chemical model,while its source term is turned on under the prognostic scaler field')
+                src => di%lc%dis%sulf%dcdt
+      
+              case default
+                FLAbort("Leaching chemical algorithm " // trim(lc_name) // " not found")
+           end select
+        
+           call addto(single_src,src,s_factor) !addto the chemical source term with scale of the stoichemistry factor
+           
+           if (minval(single_src%val)<0.0) then
+             !add to nagtive source
+             have_src_n=.true.
+             call addto(leach_src_n, single_src)
+           else
+             !add to positive source
+             have_src_p=.true.
+             call addto(leach_src_p, single_src)
+           end if
+           
+           call set(di%generic_prog_sfield(f)%lc_src%sfield_dis_src(n)%sfield, single_src)
+      
+        end do
+      
+      end if    
+      
+      !Add positive leaching chemical source term to rhs
+      if (have_src_p) then
+        call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, leach_src_p)
+        call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
+      end if
+      
+      !linearize the negative source and add to lhs
+      if (have_src_n) then
+        call allocate(leach_src_linear,di%pressure_mesh)
+        call zero(leach_src_linear)
+        
+        node_loop2: do i=1,di%number_pmesh_node
+           if (di%generic_prog_sfield(f)%sfield%val(i)<=1.0D-15) then
+             leach_src_linear%val(i)=0.0
+           else
+             leach_src_linear%val(i)=leach_src_n%val(i)/di%generic_prog_sfield(f)%sfield%val(i)
+           end if
+        end do node_loop2
+        
+        call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_source, leach_src_linear)
+        call addto(di%lhs, di%cv_mass_pressure_mesh_with_source)
+        call deallocate(leach_src_linear)
+      end if
+      
+      call deallocate(leach_src_p)
+      call deallocate(leach_src_n)
+      call deallocate(single_src)
+      nullify(src)
+
+   end subroutine add_leach_chemical_prog_src_linearization_to_lhs_rhs
+
 
    !---------------------some accessory subroutines----------------------------------------
 

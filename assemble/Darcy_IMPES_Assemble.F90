@@ -250,11 +250,11 @@ module darcy_impes_assemble_module
       call darcy_impes_assemble_and_solve_phase_saturations(di, &
                                                             form_new_subcycle_relperm_face_values, &
                                                             have_dual)
-      ! Calculate the sum of the saturations
-      call darcy_impes_calculate_sum_saturation(di)
 
       !****lcai****03Mar2015********leaching_temporary_changes
       if (di%lcsub%have_leach_subcycle) then
+         ! Calculate the sum of the saturations
+         call darcy_impes_calculate_sum_saturation(di)
          call darcy_impes_calculate_relperm_fields(di)
          call darcy_impes_calculate_densities(di)
          call darcy_impes_calculate_relperm_den_face_values_new(di)
@@ -267,6 +267,8 @@ module darcy_impes_assemble_module
       !******lcai**********leaching_temporary_change***03Mar2015
       if (.not. di%lcsub%have_leach_subcycle) then
         call darcy_impes_assemble_and_solve_generic_prog_sfields(di)
+        ! Calculate the sum of the saturations
+        call darcy_impes_calculate_sum_saturation(di)
         ! Calculate the density field of each phase
         call darcy_impes_calculate_densities(di)
 
@@ -2478,6 +2480,27 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
       end if
       ! *************Finish *** LCai **********************************!
       
+      if (di%lc%have_leach_chem_model) then 
+         if (di%generic_prog_sfield(f)%lc_src%src_linear%have) then 
+           !the source term linearization,add the positive source to rhs
+           !linearize the negative source terms and add to left hand
+           call add_leach_chemical_prog_src_linearization_to_lhs_rhs(di,f)
+         else   
+           !Add leaching chemical source term to rhs
+           call add_leach_chemical_prog_src_to_rhs(di,f)
+         end if
+      end if
+   
+
+     !***Leaching heat transfer model
+      if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then 
+         if (di%generic_prog_sfield(f)%lh_src%src_linear%have) then 
+           call darcy_trans_heat_transfer_prog_src_linearization_to_lhs_rhs(di,f) 
+         else 
+           call calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di)
+         end if
+      end if
+ 
       
       ! Add diagonal lhs to matrix
       call addto_diag(di%matrix, di%lhs)
@@ -2488,17 +2511,7 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
          call darcy_impes_assemble_generic_prog_sfield_adv_diff(di, f, p)
       
       end if
-      !call addto_diag(di%matrix, di%lhs)      
-      !************** lcai**********Leaching chemical model*************!
-      !Add leaching chemical source term to rhs
-      if (di%lc%have_leach_chem_model) then 
-         call add_leach_chemical_prog_src_to_rhs(di,f)
-      end if   
-      !***Leaching heat transfer model
-      if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then 
-        call calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di)
-      end if
-      !*************end lcai****************!
+
       ! Solve for each face value iteration (default is 1)
       do i = 1, di%generic_prog_sfield(f)%sfield_cv_options%number_face_value_iteration
          
@@ -6103,20 +6116,32 @@ subroutine darcy_trans_leaching_solve_generic_prog_single_sfield_sub(di,f,p,isub
       call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
          
    end if
-   
-   !Add leaching chemical source term to rhs
+  
    if (di%lc%have_leach_chem_model) then
-     call add_leach_chemical_prog_src_to_rhs(di,f)
+      if (di%generic_prog_sfield(f)%lc_src%src_linear%have) then
+        !the source term linearization,add the positive source to rhs
+        !linearize the negative source terms and add to left hand
+        call add_leach_chemical_prog_src_linearization_to_lhs_rhs(di,f)
+      else   
+        !Add leaching chemical source term to rhs
+        call add_leach_chemical_prog_src_to_rhs(di,f)
+      end if
    end if
-      
-   !***Leaching heat transfer model
+   
+
+     !***Leaching heat transfer model
    if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then
-     call calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di)
+      if (di%generic_prog_sfield(f)%lh_src%src_linear%have) then
+        call darcy_trans_heat_transfer_prog_src_linearization_to_lhs_rhs(di,f) 
+      else
+        call calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di)
+      end if
    end if
  
    ! Add diagonal lhs to matrix
    call addto_diag(di%matrix, di%lhs)
- 
+
+
    ! Solve for each face value iteration (default is 1)
    do i = 1, di%generic_prog_sfield(f)%sfield_cv_options%number_face_value_iteration
          
@@ -7393,7 +7418,7 @@ subroutine darcy_impes_calculate_relperm_den_face_values_new(di)
        end do
 
        if (idx==0) then
-         dy_dt=di%lcsub%max_numsub
+         dy_dt=di%dt
        else
          dy_dt=node_val(df_field_beta,idx)/abs(node_val(df,idx)/di%dt)
        end if
@@ -7420,27 +7445,30 @@ subroutine darcy_impes_calculate_relperm_den_face_values_new(di)
       
       di%lcsub%if_dinamic_dt= have_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle&
          &/scalar_field::subcycling_dt/diagnostic/dynamic_dt')
+   
+      if (di%lcsub%if_dinamic_dt) then
       !the minimun extraction of chalcopyrite to start the dynamic dt
       !the dynamic dt will not start if the minimun extraction of the rock is lower than this value
-      call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/scalar_field::subcycling_dt&
+        call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/scalar_field::subcycling_dt&
                &/diagnostic/dynamic_dt/minimum_extraction_to_start',di%lcsub%start_extraction)
-      !the master field used to calculate the dynamic dt
-      call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle&
+        !the master field used to calculate the dynamic dt
+        call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle&
                    &/scalar_field::subcycling_dt/diagnostic/dynamic_dt/master_field/phase',phase)
-      call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle&
+        call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle&
          &/scalar_field::subcycling_dt/diagnostic/dynamic_dt/master_field/name',dynamic_dt_field)
-      call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/number_of_subcycling', &
+        call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/number_of_subcycling', &
                    & di%lcsub%max_numsub)
-      di%lcsub%dy_field => extract_scalar_field(di%state(phase),trim(dynamic_dt_field), stat=stat)
-      if (.not. stat==0) then
-        FLAbort('failed to extract the field used to determine the leaching dynamic subcycling time step')
-      end if
-      di%lcsub%old_dy_field => extract_scalar_field(di%state(phase),'Old'// trim(dynamic_dt_field), stat=stat)
-      if (.not. stat==0) then
-         FLAbort('failed to extract the field used to determine the leaching dynamic subcycling time step')
-      end if
-      call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/scalar_field::subcycling_dt/&
+        di%lcsub%dy_field => extract_scalar_field(di%state(phase),trim(dynamic_dt_field), stat=stat)
+        if (.not. stat==0) then
+          FLAbort('failed to extract the field used to determine the leaching dynamic subcycling time step')
+        end if
+        di%lcsub%old_dy_field => extract_scalar_field(di%state(phase),'Old'// trim(dynamic_dt_field), stat=stat)
+        if (.not. stat==0) then
+           FLAbort('failed to extract the field used to determine the leaching dynamic subcycling time step')
+        end if
+        call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/scalar_field::subcycling_dt/&
           &diagnostic/dynamic_dt/master_field/weighting_factor',di%lcsub%beta)
+      end if
    end subroutine darcy_trans_leaching_subcycling_dynamic_timestep_initialize
 
    subroutine darcy_trans_leaching_subcycling_dynamic_timestep_finalize(di)

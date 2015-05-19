@@ -2719,6 +2719,12 @@ i.e. if the name of this scalar field is set to be 'cd', then the name will be c
     <element name="LeachingChemicalSourceTerm">
       <a:documentation>The source term from the chemical reactions for heap leaching</a:documentation>
       <optional>
+        <element name="Source_Linearization">
+          <a:documentation>to ensure the scalar field always-positive</a:documentation>
+          <ref name="comment"/>
+        </element>
+      </optional>
+      <optional>
         <ref name="darcy_impes_leaching_solution_phase_prog_src"/>
       </optional>
       <optional>
@@ -3695,34 +3701,42 @@ H_dissolution/(cp_r*rho_r),unit: (k/s)*(m^3_r/m^3_heap)</a:documentation>
     <element name="leaching_temperature_sources">
       <a:documentation>This is the temperature source term for chalcopyrote leaching
 For heat transfer between phases as well as
-the heat generation and consumption form solution phase reactions      </a:documentation>
-      <element name="scalar_field">
-        <a:documentation>heat capacity of liquid,kJ/(Kg*K)</a:documentation>
-        <attribute name="rank">
-          <value>0</value>
-        </attribute>
-        <attribute name="name">
-          <value>Liquid_Cp</value>
-        </attribute>
-        <choice>
-          <element name="diagnostic">
-            <ref name="mesh_choice_pressure"/>
-            <ref name="darcy_impes_scalar_python_diagnostic_algorithm"/>
-            <ref name="darcy_impes_diagnostic_scalar_field"/>
+the heat generation and consumption form solution phase reactions</a:documentation>
+      <group>
+        <optional>
+          <element name="Source_Linearization">
+            <a:documentation>to ensure the scalar field always-positive</a:documentation>
+            <ref name="comment"/>
           </element>
-          <element name="prescribed">
-            <ref name="mesh_choice_pressure"/>
-            <ref name="prescribed_scalar_field"/>
-            <ref name="field_output_options"/>
-            <ref name="darcy_impes_include_stat"/>
-            <optional>
-              <ref name="darcy_impes_recalculation_options"/>
-            </optional>
-          </element>
-        </choice>
-      </element>
+        </optional>
+        <element name="scalar_field">
+          <a:documentation>heat capacity of liquid,kJ/(Kg*K)</a:documentation>
+          <attribute name="rank">
+            <value>0</value>
+          </attribute>
+          <attribute name="name">
+            <value>Liquid_Cp</value>
+          </attribute>
+          <choice>
+            <element name="diagnostic">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="darcy_impes_scalar_python_diagnostic_algorithm"/>
+              <ref name="darcy_impes_diagnostic_scalar_field"/>
+            </element>
+            <element name="prescribed">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="prescribed_scalar_field"/>
+              <ref name="field_output_options"/>
+              <ref name="darcy_impes_include_stat"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+            </element>
+          </choice>
+        </element>
+      </group>
       <element name="heat_transfer_sources">
-        <a:documentation>the source term of liqudi temperature</a:documentation>
+        <a:documentation>the source term of liqud temperature</a:documentation>
         <element name="scalar_field">
           <a:documentation>the solid-liquid convection heat transfer term
 k_eff(T_r-T_l)*(1-porosity)/(Cp_l*rho_l), unit: (k/s)*(m^3_l/m^3_heap)</a:documentation>

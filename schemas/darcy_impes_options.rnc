@@ -1695,7 +1695,7 @@ darcy_impes_generic_scalar_field =
                darcy_impes_generic_scalar_field_abs?,
                darcy_impes_generic_scalar_field_src?,
                darcy_impes_prog_field_chemical_source_term?,
-	       darcy_MIM_generic_scalar_field_immobile_src?,                
+	          darcy_MIM_generic_scalar_field_immobile_src?,                
                field_output_options,
                darcy_impes_include_stat, 
                adaptivity_options_prognostic_scalar_field,
@@ -2580,8 +2580,14 @@ darcy_impes_prog_field_chemical_source_term =
    ( 
 	  ## The source term from the chemical reactions for heap leaching
           element LeachingChemicalSourceTerm{
+          (
+          ##to ensure the scalar field always-positive
+          element Source_Linearization{
+                comment
+             }
+              )?,
 		darcy_impes_leaching_solution_phase_prog_src?,
-          darcy_impes_leaching_mineral_dissolution_prog_src?
+          darcy_impes_leaching_mineral_dissolution_prog_src?         
           }
    )
 
@@ -3430,9 +3436,16 @@ darcy_impes_non_first_phase_temperature_field =
       (
         ##This is the temperature source term for chalcopyrote leaching
         ##For heat transfer between phases as well as
-        ##the heat generation and consumption form solution phase reactions      
+        ##the heat generation and consumption form solution phase reactions
+              
         element leaching_temperature_sources {
             (
+             (
+             ##to ensure the scalar field always-positive
+             element Source_Linearization{
+                comment
+             }
+              )?,
                ##heat capacity of liquid,kJ/(Kg*K)
                element scalar_field {
                attribute rank { "0" },
@@ -3454,7 +3467,7 @@ darcy_impes_non_first_phase_temperature_field =
               }
            ),
         (
-         ## the source term of liqudi temperature
+         ## the source term of liqud temperature
          element heat_transfer_sources {
            (
             ##the solid-liquid convection heat transfer term

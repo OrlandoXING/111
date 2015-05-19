@@ -101,6 +101,11 @@ module darcy_impes_leaching_types
     type(scalar_field), pointer :: sfield => null()
   end type leach_chem_src_type
   
+  type leach_chemical_prog_sfield_src_linearization
+     logical:: have
+
+  end type leach_chemical_prog_sfield_src_linearization  
+
   !options under darcy_impes_generic_prog_sfield_type
   type leach_chemical_prog_sfield_src
     logical :: have_sol_src = .false. !if have the chemical source terms from solution phase
@@ -109,10 +114,12 @@ module darcy_impes_leaching_types
     type(leach_chem_src_type), dimension(:), pointer :: sfield_sol_src =>null()
     !the array for the source terms from mineral dissolution
     type(leach_chem_src_type), dimension(:), pointer :: sfield_dis_src =>null()
+    type(leach_chemical_prog_sfield_src_linearization) :: src_linear
   end type leach_chemical_prog_sfield_src
 
   type leach_prog_sfield_heat_transfer_src
     logical :: have_heat_src = .false. !if have the leach temperature heat transfer sources
+    type(leach_chemical_prog_sfield_src_linearization) :: src_linear
   end type leach_prog_sfield_heat_transfer_src
 
   type mineral_dissolution_heat_src_type
