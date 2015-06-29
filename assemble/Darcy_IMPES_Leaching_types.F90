@@ -17,7 +17,8 @@ module darcy_impes_leaching_types
             leaching_semi_empirical_model_type, &
             leaching_arrhenius_reaction_type, &
             leach_prog_sfield_heat_transfer_src, &
-            leach_chemical_prog_sfield_subcycling
+            leach_chemical_prog_sfield_subcycling, &
+            leach_chemical_MIM_type
 
   !!----Leaching chemical options-----------------------------------------------------------------------
     !options for the bulk fluid dependency of the rate constant
@@ -35,15 +36,6 @@ module darcy_impes_leaching_types
      type(bulk_fluid_type), dimension(:), allocatable :: bulk
   end type arrhenius_rate_constant_type
   
-  type leaching_internal_algorithm_sulf
-     !the name of the scalar field used to calculate H and liquid phase oxygen concentration
-     character(len=FIELD_NAME_LEN) :: H_name 
-     character(len=FIELD_NAME_LEN) :: o2_name
-     type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
-     type(scalar_field), pointer :: S0 => null() !the molar concentration of jarosite per volume of heap
-     logical :: bio = .false. !Wether the S0 dissolution is under bacteria activity
-     real :: ps  !the persentage of the S0 to dissolve when the leaching is non-bio
-  end type leaching_internal_algorithm_sulf
   
   type leaching_arrhenius_reaction_type
      type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
@@ -77,7 +69,23 @@ module darcy_impes_leaching_types
      type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
   end type leaching_internal_algorithm_oxdi
 
+  type leaching_internal_algorithm_sulf
+     !the name of the scalar field used to calculate H and liquid phase oxygen concentration
+     character(len=FIELD_NAME_LEN) :: H_name 
+     character(len=FIELD_NAME_LEN) :: o2_name
+     type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
+     type(scalar_field), pointer :: S0 => null() !the molar concentration of jarosite per volume of heap
+     logical :: bio = .false. !Wether the S0 dissolution is under bacteria activity
+     real :: ps  !the persentage of the S0 to dissolve when the leaching is non-bio
+  end type leaching_internal_algorithm_sulf
 
+  type leaching_internal_algorithm_gangue
+     !name of H+ used to dissolve gangue mineral
+     character(len=FIELD_NAME_LEN) :: H_name
+     type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
+     real :: u !the reaction rate constant of gangue mineral dissolution, 1/s
+  end type leaching_internal_algorithm_gangue
+  
   !options for leaching solution phase reaction
   type leaching_solution_phase_type
      type(leaching_internal_algorithm_jaro):: jaro  !jarocite precipitation
@@ -90,6 +98,7 @@ module darcy_impes_leaching_types
      type(leaching_internal_algorithm_sulf):: sulf  !elemental sulfur dissolution
      type(leaching_semi_empirical_model_type)::pyri !dissolution of pyrite
      type(leaching_semi_empirical_model_type)::chal !dissolution of chalcopyrite
+     type(leaching_internal_algorithm_gangue):: gang !gang mineral dissolution
   end type leaching_mineral_dissolution_type
   
   !options for leach_chem_src_type for generic prog leach chemical src
@@ -110,6 +119,7 @@ module darcy_impes_leaching_types
   type leach_chemical_prog_sfield_src
     logical :: have_sol_src = .false. !if have the chemical source terms from solution phase
     logical :: have_dis_src = .false. !if have the chemical source terms from mineral dissolution
+    logical :: have_chem_src = .false. !if have any type of chemical source terms
     !the array for the source terms from solution phase
     type(leach_chem_src_type), dimension(:), pointer :: sfield_sol_src =>null()
     !the array for the source terms from mineral dissolution
@@ -133,9 +143,11 @@ module darcy_impes_leaching_types
   end type solution_phase_heat_src_type 
  
   type leach_heat_transfer_model
+     logical:: have_ht = .false.
      logical:: heat_transfer_single = .false.
      logical:: heat_transfer_two = .false.
      logical:: heat_transfer_three = .false.
+     logical:: prog_liquid_temperature = .false.
      type(scalar_field), pointer :: liquid_temperature => null()
      type(scalar_field), pointer :: air_temperature => null()
      type(scalar_field), pointer :: rock_temperature => null()
@@ -147,7 +159,7 @@ module darcy_impes_leaching_types
      type(scalar_field), pointer :: K_eff_ls => null() !liquid-solid effective heat transfer coefficient
      type(scalar_field_pointer), dimension(:), pointer :: two_phase_src_solid => null() !rock temperature heat transfer term
      type(scalar_field_pointer), dimension(:), pointer :: two_phase_src_liquid => null() !liquid temperature heat transfer term
-     type(mineral_dissolution_heat_src_type), dimension(:), allocatable :: rock_md_src !mineral dissolution heat transfer sources
+      type(mineral_dissolution_heat_src_type), dimension(:), allocatable :: rock_md_src !mineral dissolution heat transfer sources
      type(solution_phase_heat_src_type), dimension(:), allocatable :: liquid_sr_src !solution phase reactions heat transfer sources
   end type leach_heat_transfer_model
 
@@ -156,6 +168,7 @@ module darcy_impes_leaching_types
     logical:: have_leach_chem_model = .false.  !if have leaching chemical model of this material phase
     logical:: have_dis = .false. !if have leaching minderal dissolution
     logical:: have_sol = .false. !if have leaching solution phase reactions
+    logical:: if_MIM= .false. !!if solve the leaching chemical model with MIM
     type(leaching_mineral_dissolution_type):: dis 
     type(leaching_solution_phase_type) :: sol 
     type(leach_heat_transfer_model)::ht
@@ -170,15 +183,31 @@ module darcy_impes_leaching_types
     integer:: number_subcycle !the  numbmer of subcycling
     real :: start_extraction !the minimun extraction of chalcopyrite to start the dynaimic dt
     type(scalar_field), dimension(:), allocatable :: sub_lht !the tentative liquid holdup during subcycling
+    type(scalar_field), dimension(:), allocatable :: sub_lht_im !the tentative liquid holdup for immobile one
     type(scalar_field), dimension(:), allocatable :: sub_rhs
     type(csr_matrix), dimension(:), allocatable :: sub_adv_diff !the tentative absorption, advection and diffusion during subcycling
     type(scalar_field), dimension(:), allocatable :: old_sub_lht
+    type(scalar_field), dimension(:), allocatable :: old_sub_lht_im
     type(scalar_field), dimension(:), allocatable :: old_sub_rhs
     type(csr_matrix), dimension(:), allocatable :: old_sub_adv_diff 
     type(scalar_field), dimension(:), allocatable :: iterated_sfield
+    type(scalar_field), dimension(:), allocatable :: iterated_imsfield
     type(scalar_field), pointer :: dy_field !field used to decide the time step of the dynamic subcycling 
     type(scalar_field), pointer :: old_dy_field
     type(scalar_field), pointer :: dynamic_dt !the pointer field to write the dynamic dt into the stat file as a scalar field, due to the fact that output a constant value to stat file need to change the 'diagnoctic_variables' file, therefore to avoid changing that file, we choose output dynamic_dt as a scalar field.
-  end type leach_chemical_prog_sfield_subcycling
+ end type leach_chemical_prog_sfield_subcycling
 
+ type leach_chemical_MIM_field_type
+    type (scalar_field), pointer :: sfield
+    type (scalar_field) :: p_src !the positive part of the chemical source term
+    type (scalar_field) :: n_src !the negative part of the chemical source term    
+ end type leach_chemical_MIM_field_type
+ 
+
+  type  leach_chemical_MIM_type
+     logical :: have_chem = .false.
+     logical :: if_src_linear= .false.
+     type (leach_chemical_MIM_field_type) :: im_src !the chemical reaction src of the immobile part
+     type (leach_chemical_MIM_field_type) :: mo_src !the chemical reaction src of the mobile part
+  end type leach_chemical_MIM_type
 end module

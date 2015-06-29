@@ -1323,7 +1323,7 @@ contains
     call allocate_metric_limits(states(1))
     !***********22 July******lcai********Leaching_chemical_model**********
     if (have_option('/Leaching_chemical_model')) then
-    call allocate_and_insert_leaching_model(states(1))
+       call allocate_and_insert_leaching_model(states(1))
     end if
     !********Finish******lcai************Leaching************************ 
   contains
@@ -1362,15 +1362,20 @@ contains
               dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
          end if
          
-         !*******22 July 2014 lcai*Leaching_chemical_model************************
+         !******* lcai*Leaching_chemical_model************************
          !-------------allocate and insert the leaching source field of the prog sfield-----!
          if (have_option(trim(path)//'/prognostic/LeachingChemicalSourceTerm') .or. &
              have_option(trim(path)//'/prognostic/leaching_temperature_sources')) then
          
-         call allocate_and_insert_leaching_src_prog_sfield(path,field_name, state)
+           call allocate_and_insert_leaching_src_prog_sfield(path,field_name, state)
 
-         end if 
-         !*************Finish*****lcai*Leaching*********************************
+         end if
+
+         if (have_option(trim(path)//'/prognostic/scalar_field::Immobile')) then
+            call allocate_and_insert_immobile_src_fields(path,field_name, state)
+         end if
+           
+         !*************Finish*************************************
       end do scalar_field_loop
 
       ! Get number of vector fields that are children of this state
@@ -1432,8 +1437,8 @@ contains
     Subroutine allocate_and_insert_MIM(state_path, state)
     character(len=*), intent(in) :: state_path
     type(state_type), intent(inout) :: state
-    character(len=OPTION_PATH_LEN) :: path
-    character(len=OPTION_PATH_LEN) :: field_name
+    character(len=OPTION_PATH_LEN) :: path1, path
+    character(len=OPTION_PATH_LEN) :: field_name1, field_name
     integer :: nfields ! number of fields
     integer :: j
   
@@ -1453,16 +1458,44 @@ contains
           call get_option(trim(path)//"/name", field_name)
           ! Reset path to have field name rather than index
           path=trim(state_path_MIM)//"/scalar_field::"//trim(field_name)
-          !if it is the prognostic immobile field, then adding the prefix to it
-          if (have_option(trim(path)//'/prognostic')) then
-            field_name = 'Immobile'//trim(field_name)
-          end if  
+  
           call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
-                dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+               dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
  
       end do scalar_field_loop
     
     end Subroutine allocate_and_insert_MIM
+
+    subroutine allocate_and_insert_immobile_src_fields(master_path,master_field_name, state)
+       character(len=*), intent(in) :: master_path
+       character(len=OPTION_PATH_LEN), intent(in) :: master_field_name
+       type(state_type), intent(inout) :: state         
+
+       !local variables
+       !local variables
+       character(len=OPTION_PATH_LEN) :: field_name, field_name1
+       character(len=OPTION_PATH_LEN):: field_path, field_path1
+       integer :: nfields, j
+
+       field_path=trim(master_path)//"/prognostic/scalar_field::Immobile"
+
+
+       !for the fields under the immobile field
+       nfields=option_count(trim(field_path)//"/scalar_field")       
+       do j=0, nfields-1
+          field_path1=trim(field_path)//"/scalar_field["//int2str(j)//"]"
+          call get_option(trim(field_path1)//"/name", field_name1)
+          field_path1=trim(field_path)//"/scalar_field::"//trim(field_name1)
+          !add the prefix of the field name to the fields
+          field_name1=trim(master_field_name)//trim(field_name1)
+          
+          call allocate_and_insert_scalar_field(trim(field_path1), state, field_name=field_name1, &
+               dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+       end do
+
+         
+    end subroutine allocate_and_insert_immobile_src_fields
+    
     !****Finish***LCai Allocate all the Mobile_Immbobile fields*******!
     !*****22 July 2014***lcai***Leaching_chemical_model***************!
     subroutine allocate_and_insert_leaching_src_prog_sfield(master_path,master_field_name, state)
@@ -1473,7 +1506,24 @@ contains
        !local variables
        character(len=OPTION_PATH_LEN) :: reaction_path, reaction_name, src_path, src_path2, src_name
        integer :: nfields, j
-   
+
+
+        !---------------for MIM terms
+       if (have_option(trim(master_path)//'/prognostic/LeachingChemicalSourceTerm/Mobile_Immobile_Model')) then
+                src_path=trim(master_path)//'/prognostic/LeachingChemicalSourceTerm'
+               nfields=option_count(trim(src_path)//'/Mobile_Immobile_Model/scalar_field')
+               do j=0,nfields-1
+                  src_path2=trim(src_path)//"/Mobile_Immobile_Model/scalar_field["//int2str(j)//"]"
+                  call get_option(trim(src_path2)//"/name", src_name)
+                  src_path2=trim(src_path)//"/Mobile_Immobile_Model/scalar_field::"//trim(src_name)
+                  !add the prefix of the field name to the fields
+                  src_name=trim(master_field_name)//trim(src_name) 
+                  
+                  call allocate_and_insert_scalar_field(trim(src_path2), state, field_name=src_name, &
+                 dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+                    
+               end do
+            end if
        !----------for the solution phase reactions
        if (have_option(trim(master_path)//'/prognostic/LeachingChemicalSourceTerm/SolutionPhaseSource')) then
          reaction_path=trim(master_path)//'/prognostic/LeachingChemicalSourceTerm/SolutionPhaseSource'
@@ -1489,7 +1539,7 @@ contains
          end do
        end if
    
-       !----------for mineral dissolution reactions
+       !----------for mineral dissolutison reactions
        if (have_option(trim(master_path)//'/prognostic/LeachingChemicalSourceTerm/MineralDissolutionSource')) then
          reaction_path=trim(master_path)//'/prognostic/LeachingChemicalSourceTerm/MineralDissolutionSource'
          nfields=option_count(trim(reaction_path)//"/scalar_field")
@@ -1508,6 +1558,22 @@ contains
        if (master_field_name .eq. 'Temperature') then
          if (have_option(trim(master_path)//'/prognostic/leaching_temperature_sources')) then
             src_path=trim(master_path)//'/prognostic/leaching_temperature_sources'
+
+            !---------------for MIM terms
+            if (have_option(trim(src_path)//'/Mobile_Immobile_Model')) then
+               nfields=option_count(trim(src_path)//"/Mobile_Immobile_Model/scalar_field")
+               do j=0,nfields-1
+                  src_path2=trim(src_path)//"/Mobile_Immobile_Model/scalar_field["//int2str(j)//"]"
+                  call get_option(trim(src_path2)//"/name", src_name)
+                  src_path2=trim(src_path)//"/Mobile_Immobile_Model/scalar_field::"//trim(src_name)
+                  !add the prefix of the field name to the fields
+                  src_name=trim(master_field_name)//trim(src_name)            
+                  call allocate_and_insert_scalar_field(trim(src_path2), state, field_name=src_name, &
+                 dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+                    
+               end do
+            end if
+            
             nfields=option_count(trim(src_path)//"/scalar_field")
             do j=0, nfields-1
                src_path2=trim(src_path)//"/scalar_field["//int2str(j)//"]"
@@ -1528,8 +1594,12 @@ contains
                   dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
               end do           
            end if
-         end if
-       end if
+           
+        end if                
+     end if
+     
+
+       
      
     end subroutine allocate_and_insert_leaching_src_prog_sfield
 
@@ -1600,7 +1670,7 @@ contains
               path=trim(state_path_lc)//"/reaction["//int2str(jr)//"]"
               call get_option(trim(path)//"/name", reaction_name)
               reaction_path=trim(state_path_lc)//"/reaction::"//trim(reaction_name)
-              
+   
               select case(trim(reaction_name))
                  case("CuFeS2_oxidation_aqueous_ferric_sulfate")
                     prefix="chal_"
@@ -1608,8 +1678,12 @@ contains
                     prefix="pyri_"
                  case('S0_dissolution')
                     prefix="sulf_"
+
+                 case('Gangue_mineral_acid_dissolution')
+                    prefix="gang_"
                  case default
                     FLAbort("Mineral dissolution reaction" // trim(reaction_name) // " not found")
+                    
               end select
               
               nfields=option_count(trim(reaction_path)//"/scalar_field")
@@ -1619,16 +1693,14 @@ contains
                 call get_option(trim(path)//"/name", field_name)
                 path=trim(reaction_path)//"/scalar_field::"//trim(field_name)
                 field_name=trim(prefix)//trim(field_name)
-    
                 call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
-                                dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)    
+                     dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
               end do
               
               if (have_option(trim(reaction_path)//'/rate_constant_Arrhenius')) then          
                  !get the prefactor of the reaction rate
                  path=trim(reaction_path)//'/rate_constant_Arrhenius/scalar_field::prefactor'
                  field_name=trim(prefix)//'prefactor'
-                 
                  call allocate_and_insert_scalar_field(trim(path), state, field_name=field_name, &
                                 dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
               end if
@@ -2014,6 +2086,8 @@ contains
                     field_name="pyri_"
                  case('S0_dissolution')
                     field_name="sulf_"
+                 case('Gangue_mineral_acid_dissolution')
+                    field_name="gang_"         
 
               end select
               
@@ -2857,7 +2931,6 @@ contains
        ! flush the cache
        call vtk_cache_finalise()
     end if
-
   end subroutine initialise_prognostic_fields
 
   subroutine allocate_and_insert_auxilliary_fields(states, force_prescribed_diagnositc_allocate_old_iterated)
@@ -3643,8 +3716,7 @@ contains
     X => extract_vector_field(state, "Coordinate")
     ! We can't use the external mesh in the extruded case -- these have to go on the
     ! CoordinateMesh.
-    !mesh => get_external_mesh((/state/))
-    mesh => extract_mesh(state, trim(topology_mesh_name))
+    !mesh => get_external_mesh((/state/))    mesh => extract_mesh(state, trim(topology_mesh_name))
 
     if (.not. have_option(path // "/tensor_field::MinimumEdgeLengths")) then
       ewrite(-1,*) "Warning: adaptivity turned on, but no edge length limits available?"

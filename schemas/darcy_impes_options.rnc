@@ -1694,8 +1694,8 @@ darcy_impes_generic_scalar_field =
                darcy_impes_generic_scalar_field_diff?,
                darcy_impes_generic_scalar_field_abs?,
                darcy_impes_generic_scalar_field_src?,
-               darcy_impes_prog_field_chemical_source_term?,
-	          darcy_MIM_generic_scalar_field_immobile_src?,                
+               darcy_MIM_generic_scalar_field_immobile_src?,   
+               darcy_impes_prog_field_chemical_source_term?,             
                field_output_options,
                darcy_impes_include_stat, 
                adaptivity_options_prognostic_scalar_field,
@@ -1798,18 +1798,64 @@ darcy_impes_generic_scalar_field_src =
 
 darcy_MIM_generic_scalar_field_immobile_src =
    (
-      ## This is the coupled source term for the mobile-immobile model,
-      ## By turning on this term, the source term will be calculated implicitly
-      element ImmobileSource {
-         ## Please write down the name of the corresponding immobile source field,
-         ## Which should be exactly the same with the name set in the MobileImmobileModel option
-         element algorithm {
-            attribute name { "Internal" },
-            attribute material_phase_support { "multiple" },
-            attribute source_field_name { xsd:string }
-     }
-      }
-   )
+         
+      ## the postfix of the field will be added to 'Immobile',
+      ## i.e. if the name of this scalar field is 'cd', then the name will be changed to be
+      ## 'Immobilecd'  
+	 element scalar_field {
+	           attribute rank { "0" },
+	           attribute name { "Immobile" },
+	          (
+		      element diagnostic {
+                   mesh_choice_pressure,
+			    darcy_impes_internal_algorithm,
+			    initial_condition_scalar,
+			    darcy_impes_diagnostic_scalar_field,
+			    darcy_impes_recalculation_options?
+			    }
+                    ),
+               (
+                ##this is the averaged mass between mobile and immobile field
+                element scalar_field {
+                attribute rank { "0" },
+                attribute name { "Average_mass" },
+                element diagnostic {
+                   mesh_choice_pressure,
+			    darcy_impes_internal_algorithm,
+			    darcy_impes_diagnostic_scalar_field,
+			    darcy_impes_recalculation_options?
+                     }
+                    }
+			    ),
+			  (
+			     ##This is weighting ratio of the mobile part to the average mass
+			     element scalar_field {
+                    attribute rank { "0" },
+                    attribute name { "Mobile_ratio" },
+                    element diagnostic {
+                       mesh_choice_pressure,
+			        darcy_impes_internal_algorithm,
+			        darcy_impes_diagnostic_scalar_field,
+			        darcy_impes_recalculation_options?
+			        }
+			       }
+			      ),
+	             (
+			     ##This is weighting ratio of the immobile part to the average mass
+			     element scalar_field {
+                    attribute rank { "0" },
+                    attribute name { "Immobile_ratio" },
+                    element diagnostic {
+                       mesh_choice_pressure,
+			        darcy_impes_internal_algorithm,
+			        darcy_impes_diagnostic_scalar_field,
+			        darcy_impes_recalculation_options?
+			       }
+			      }
+			     ) 
+			     		        
+                   }
+              )?  
 
 
 darcy_impes_first_phase_bc_pressure_field =
@@ -2451,6 +2497,7 @@ scalar_convergence_options =
 	( 
 	  ## The Mobile-Immobile model which divide the total saturation into two regions, 
 	  ## which are the dynamic saturation and the immobile saturation.
+	  ##Please turn on the corresponding immobile field under the mobile prognostic fields under the same fase
           element MobileImmobileModel {
 					## this is the Immobile Saturation
 		element scalar_field {
@@ -2503,27 +2550,7 @@ scalar_convergence_options =
                          darcy_impes_recalculation_options?
                           }
                          )
-			}?,
-               
-               ## Please set the immobile field name as the same name of the mobile source field name,
-               ## the prefix of 'Immobile' will be added to be the field name,
-               ## i.e. if the name of this scalar field is set to be 'cd', then the name will be changed to be
-               ## 'Immobilecd'  
-	       element scalar_field {
-	             attribute name { xsd:string },
-	             (
-		      element prognostic { 
-		         mesh_choice_pressure,
-			 initial_condition_scalar+,
-                         ## Please write down the name of the mobile source field which the immobile field is based on
-                         element source_field_name { string },
-                         field_output_options,
-                         darcy_impes_include_stat,
-			 adaptivity_options_prognostic_scalar_field,
-			 interpolation_algorithm_scalar
-	              }
-                    )
-                 }*
+			}?               
 	   } 
 	)
 	
@@ -2587,7 +2614,42 @@ darcy_impes_prog_field_chemical_source_term =
              }
               )?,
 		darcy_impes_leaching_solution_phase_prog_src?,
-          darcy_impes_leaching_mineral_dissolution_prog_src?         
+          darcy_impes_leaching_mineral_dissolution_prog_src?,
+          (
+			      ##This is the the leaching chemical source terms from the immobile concentration
+                     element Mobile_Immobile_Model{
+                           ##This is the average leaching chemical source term based on the mobile solution
+                           ##mole per  volume of mobile solution
+                           ##while the chemical source term under the prognostic field is mole per total volume of solution, which is based on the average mass of both mobile and immobile solution 
+                           element scalar_field{
+                              attribute rank { "0" },
+                              attribute name { "Mobile_chemical_src" },
+                              element diagnostic {
+                                   mesh_choice_pressure,
+			                    darcy_impes_internal_algorithm,
+			                    darcy_impes_diagnostic_scalar_field,
+			                    darcy_impes_recalculation_options?,
+			                    field_output_options,
+                                   darcy_impes_include_stat
+			                }
+                           },
+                         ##This is the chemical source term of the contribution from the immobile part
+                         ##mole per volume of immobile solution
+                         element scalar_field{
+                              attribute rank { "0" },
+                              attribute name { "Immobile_chemical_src" },
+                              element diagnostic {
+                                   mesh_choice_pressure,
+			                    darcy_impes_internal_algorithm,
+			                    darcy_impes_diagnostic_scalar_field,
+			                    darcy_impes_recalculation_options?,
+			                    field_output_options,
+                                   darcy_impes_include_stat
+			                }
+                           }
+                           
+                     	}		      
+			       )?         
           }
    )
 
@@ -2702,6 +2764,17 @@ darcy_impes_leaching_mineral_dissolution_prog_src =
                 element scalar_field {
                           attribute rank { "0" },
                           attribute name {"S0_dissolution"},
+                          element diagnostic {
+                             mesh_choice_pressure,
+                             darcy_impes_internal_algorithm,
+                             darcy_impes_chemical_stoichiometric_factor,
+                             darcy_impes_diagnostic_scalar_field,
+                             darcy_impes_recalculation_options?
+                             }
+                        }|
+                 element scalar_field {
+                          attribute rank { "0" },
+                          attribute name {"Gangue_mineral_acid_dissolution"},
                           element diagnostic {
                              mesh_choice_pressure,
                              darcy_impes_internal_algorithm,
@@ -2841,8 +2914,8 @@ leaching_mineral_dissolution_options =
               element reaction{
                  attribute name {"S0_dissolution"},
                    (
-                      ##The molar concentration of jarosite,
-                      ##mole per m^3 of liquid solution
+                      ##The molar concentration of S0,
+                      ##mole per m^3 of heap
                       element scalar_field {                               
                                attribute rank { "0" },
                                attribute name {"S0"},
@@ -2897,7 +2970,36 @@ leaching_mineral_dissolution_options =
                     ##The scalar filed name for H+ in phase 2
                       element H_name {string }    
                        )  
-                     }
+                     }|
+                    
+                     element reaction{
+                      attribute name {"Gangue_mineral_acid_dissolution"},
+                    (
+                      ##This is the dissolution rate of gangue mineral by acid
+                      ##mole/s per m^3 of heap
+                      element scalar_field {                               
+                               attribute rank { "0" },
+                               attribute name {"dG_dt"},
+                               element diagnostic {
+                                          mesh_choice_pressure,
+                                          darcy_impes_internal_algorithm,
+                                          darcy_impes_diagnostic_scalar_field,
+                                          darcy_impes_recalculation_options?
+                                      }
+                              }
+                           ),
+                     (
+                      ##please specify the rate constant of dissolution, 1/s 
+                       element rate_constant { real
+                                                            }      
+                    ),
+                      
+                   (
+                    ##The scalar filed name for H+ in Phase 2 used to gangue mineral dissolution
+                      element H_name {string }
+                   )
+                   }
+                   
              )*
 
          }?
@@ -3212,8 +3314,8 @@ darcy_impes_non_first_phase_temperature_field =
                darcy_impes_generic_scalar_field_bc*,
                darcy_impes_generic_scalar_field_diff?,
                darcy_impes_generic_scalar_field_src?,
-               darcy_impes_leaching_liquid_phase_temperature_src?,
-	          darcy_MIM_generic_scalar_field_immobile_src?,                
+               darcy_MIM_generic_scalar_field_immobile_src?,   
+               darcy_impes_leaching_liquid_phase_temperature_src?,	                    
                field_output_options,
                darcy_impes_include_stat, 
                adaptivity_options_prognostic_scalar_field,
@@ -3508,6 +3610,41 @@ darcy_impes_non_first_phase_temperature_field =
              }  
            )?
          }
-       )         
+       ),
+        (
+			      ##This is the the leaching chemical source terms from the immobile concentration
+                     element Mobile_Immobile_Model{
+                           ##This is the average leaching chemical source term based on the mobile solution
+                           ##mole per  volume of mobile solution
+                           ##while the chemical source term under the prognostic field is mole per total volume of solution, which is based on the average mass of both mobile and immobile solution 
+                           element scalar_field{
+                              attribute rank { "0" },
+                              attribute name { "Mobile_chemical_src" },
+                              element diagnostic {
+                                   mesh_choice_pressure,
+			                    darcy_impes_internal_algorithm,
+			                    darcy_impes_diagnostic_scalar_field,
+			                    darcy_impes_recalculation_options?,
+			                    field_output_options,
+                                   darcy_impes_include_stat
+			                }
+                           },
+                         ##This is the chemical source term of the contribution from the immobile part
+                         ##mole per volume of immobile solution
+                         element scalar_field{
+                              attribute rank { "0" },
+                              attribute name { "Immobile_chemical_src" },
+                              element diagnostic {
+                                   mesh_choice_pressure,
+			                    darcy_impes_internal_algorithm,
+			                    darcy_impes_diagnostic_scalar_field,
+			                    darcy_impes_recalculation_options?,
+			                    field_output_options,
+                                   darcy_impes_include_stat
+			                }
+                           }
+                           
+                     	}		      
+			       )?         
       }
      )

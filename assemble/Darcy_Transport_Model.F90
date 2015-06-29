@@ -13,7 +13,6 @@ module darcy_transport_model
   use data_structures
   use initialise_fields_module
   use global_parameters, only: OPTION_PATH_LEN
-  use darcy_impes_leaching_types
   use vtk_cache_module, only:vtk_cache_finalise
   use fefields, only: compute_cv_mass
 
@@ -63,12 +62,15 @@ contains
                di%MIM_options%old_immobile_saturation(p)%ptr  => extract_scalar_field(di%state(p), "OldImmobileSaturation")
                di%MIM_options%mobile_saturation(p)%ptr        => extract_scalar_field(di%state(p), "MobileSaturation")
                di%MIM_options%old_mobile_saturation(p)%ptr    => extract_scalar_field(di%state(p), "OldMobileSaturation")
+                
+    
             else
                di%MIM_options%have_MIM(p) = .false.
                di%MIM_options%immobile_saturation(p)%ptr  => di%constant_zero_sfield_pmesh
                di%MIM_options%mobile_saturation(p)%ptr    => di%constant_zero_sfield_pmesh
                di%MIM_options%old_immobile_saturation(p)%ptr  => di%constant_zero_sfield_pmesh
                di%MIM_options%old_mobile_saturation(p)%ptr    => di%constant_zero_sfield_pmesh
+
             end if
             
          else                       
@@ -199,7 +201,7 @@ contains
                            
                            di%generic_prog_sfield(f_count)%MIM%chem%have_chem = .true.
                            tmp_char_option1 = trim(tmp_char_option)//'Mobile_chemical_src'
-                           di%generic_prog_sfield(f_count)%MIM%chem%mo_src => extract_scalar_field(di%state(p), &
+                           di%generic_prog_sfield(f_count)%MIM%chem%mo_src%sfield => extract_scalar_field(di%state(p), &
                                 trim(tmp_char_option1), stat)
                            
                            if (.not. stat==0) then
@@ -207,7 +209,7 @@ contains
                            end if  
 
                            tmp_char_option1 = trim(tmp_char_option)//'Immobile_chemical_src'
-                           di%generic_prog_sfield(f_count)%MIM%chem%im_src => extract_scalar_field(di%state(p), &
+                           di%generic_prog_sfield(f_count)%MIM%chem%im_src%sfield => extract_scalar_field(di%state(p), &
                                 trim(tmp_char_option1), stat)                       
                            if (.not. stat==0) then
                               FLExit('failed to extract the field:'//tmp_char_option1)
@@ -220,7 +222,7 @@ contains
 
                            di%generic_prog_sfield(f_count)%MIM%chem%have_chem = .true.
                            tmp_char_option1 = trim(tmp_char_option)//'Mobile_chemical_src'
-                           di%generic_prog_sfield(f_count)%MIM%chem%mo_src => extract_scalar_field(di%state(p), &
+                           di%generic_prog_sfield(f_count)%MIM%chem%mo_src%sfield => extract_scalar_field(di%state(p), &
                                 trim(tmp_char_option1), stat)
                            
                            if (.not. stat==0) then
@@ -228,7 +230,7 @@ contains
                            end if  
 
                            tmp_char_option1 = trim(tmp_char_option)//'Immobile_chemical_src'
-                           di%generic_prog_sfield(f_count)%MIM%chem%im_src => extract_scalar_field(di%state(p), &
+                           di%generic_prog_sfield(f_count)%MIM%chem%im_src%sfield => extract_scalar_field(di%state(p), &
                                 trim(tmp_char_option1), stat)
                            
                            if (.not. stat==0) then
@@ -302,8 +304,8 @@ contains
            nullify(di%generic_prog_sfield(f)%MIM%Fd)
            di%generic_prog_sfield(f)%MIM%have_MIM_source  = .false.
            if (di%generic_prog_sfield(f)%MIM%chem%have_chem) then
-              nullify(di%generic_prog_sfield(f)%MIM%chem%mo_src)
-              nullify(di%generic_prog_sfield(f)%MIM%chem%im_src)
+              nullify(di%generic_prog_sfield(f)%MIM%chem%mo_src%sfield)
+              nullify(di%generic_prog_sfield(f)%MIM%chem%im_src%sfield)
               di%generic_prog_sfield(f)%MIM%chem%have_chem=.false.
            end if
         end if        
@@ -347,123 +349,281 @@ contains
   end subroutine darcy_trans_MIM_assemble_and_solve_mobile_saturation
 
 
-  subroutine darcy_trans_MIM_prog_sfield_allocate_rhs_lhs(di,p,f,temp_MIM_src)
+  subroutine darcy_trans_MIM_prog_sfield_allocate_rhs_lhs(di,p,f,shared_rhs, shared_lhs,isub)
 
          type(darcy_impes_type), intent(inout) :: di
          integer, intent(in) :: p,f
-         type(scalar_field), intent(inout) :: temp_MIM_src
+         type(scalar_field), intent(inout) :: shared_rhs, shared_lhs
+         integer,optional,intent(in) :: isub
          
-         type(scalar_field) :: leach_im_src
-         type(scalar_field) :: MIM_src
-         type(scalar_field) :: MIM_src_s
-         
+         type(scalar_field) :: MIM_src,MIM_src_s,leach_im_src,theta_s,theta_d,theta_s_old, theta_d_old, src_cv_mass, old_cd, old_cs
+         real :: dt
+         real :: isub_e, isub_s
+         integer :: i
+
+         if (di%lcsub%have_leach_subcycle) then
+            dt=di%lcsub%sub_dt
+         else
+            dt=di%dt
+         end if
+
+         if (di%lcsub%have_leach_subcycle) then
+            isub_e=real(isub)/real(di%lcsub%number_subcycle)
+            isub_s=real(isub-1)/real(di%lcsub%number_subcycle) 
+         else
+            isub_s=0
+            isub_e=1.0
+         end if
+
          call allocate(MIM_src, di%pressure_mesh)
-         call allocate(MIM_src_s,  di%pressure_mesh)
-         call zero(MIM_src)
-         call zero(MIM_src_s)
-                  
-         !Addto the lhs matrix
-         !calculate 1/(theta_s+alpha*dt)
-         call set(MIM_src, di%MIM_options%immobile_saturation(p)%ptr)
+         call allocate(MIM_src_s, di%pressure_mesh)
+         call allocate(theta_s, di%pressure_mesh)
+         call allocate(theta_s_old, di%pressure_mesh)
+         call allocate(theta_d, di%pressure_mesh)
+         call allocate(theta_d_old, di%pressure_mesh)
+         call allocate(src_cv_mass, di%pressure_mesh)
+         call allocate(old_cd, di%pressure_mesh)
+         call allocate(old_cs, di%pressure_mesh)
 
-         call scale(MIM_src, di%porosity_pmesh)
+         if (di%lcsub%have_leach_subcycle) then
+             !mobile liquid hold up
+             call set(theta_d,di%lcsub%sub_lht(p))
+             call scale(theta_d,isub_e)
+             call addto(theta_d,di%lcsub%old_sub_lht(p),scale=(1-isub_e))
+             !immobile liquid hold up  
+             call set(theta_s,di%lcsub%sub_lht_im(p))
+             call scale(theta_s,isub_e)
+             call addto(theta_s,di%lcsub%old_sub_lht_im(p),scale=(1-isub_e))
+             
+             !!for the old liquid hold of previous subcycle
+             !old mobile liquid hold up
+             call set(theta_d_old,di%lcsub%sub_lht(p))
+             call scale(theta_d_old,isub_s)
+             call addto(theta_d_old,di%lcsub%old_sub_lht(p),scale=(1-isub_s))
+             !old immobile liquid hold up  
+             call set(theta_s_old,di%lcsub%sub_lht_im(p))
+             call scale(theta_s_old,isub_s)
+             call addto(theta_s_old,di%lcsub%old_sub_lht_im(p),scale=(1-isub_s))
 
-         call addto(MIM_src, di%MIM_options%mass_trans_coef(p)%ptr, scale=di%dt)
-         call invert(MIM_src, temp_MIM_src) !temp_MIM_src is '1/(theta_s+alpha*dt)'
+             call set(old_cd,di%lcsub%iterated_sfield(f))
+             call set(old_cs,di%lcsub%iterated_imsfield(f))
+             
+          else
+             !mobile liquid hold up
+             call set(theta_d,di%MIM_options%mobile_saturation(p)%ptr)
+             call scale(theta_d, di%porosity_pmesh)
+            
+             !immobile liquid hold up
+             call set(theta_s,di%MIM_options%immobile_saturation(p)%ptr)
+             call scale(theta_s,di%porosity_pmesh) 
+             
+             !!for the old liquid hold up of previous timestep
+             !mobile liquid hold up
+             call set(theta_d_old,di%MIM_options%old_mobile_saturation(p)%ptr)
+             call scale(theta_d_old,di%old_porosity_pmesh)
+             !immobile liquid hold up
+             call set(theta_s_old, di%MIM_options%old_immobile_saturation(p)%ptr)
+             call scale(theta_s_old, di%old_porosity_pmesh)
 
-         call set(MIM_src, temp_MIM_src)
-         call scale(MIM_src, di%MIM_options%mass_trans_coef(p)%ptr) 
-         call scale(MIM_src, di%MIM_options%mass_trans_coef(p)%ptr)! repeated to scale with alpha**2
-         call scale(MIM_src, di%dt)
-         call addto(MIM_src, di%MIM_options%mass_trans_coef(p)%ptr, scale=-1.0)
-           
-         call compute_cv_mass(di%positions,MIM_src_s, MIM_src)
+             call set(old_cd,di%generic_prog_sfield(f)%old_sfield)
+             call set(old_cs,di%generic_prog_sfield(f)%MIM%immobile_sfield%old_sfield)
 
-         call addto(di%lhs, MIM_src_s, scale=-1.0)
-
-         !Addto the rhs matrix
-         !before start to compute rhs, zero the field to be used
-         call zero(MIM_src)
-
-         !Add the source term with old immobile concentration 
-         call set(MIM_src,temp_MIM_src)
-         call scale(MIM_src, di%MIM_options%mass_trans_coef(p)%ptr)
-         call scale(MIM_src, di%MIM_options%old_immobile_saturation(p)%ptr)
-         call scale(MIM_src, di%generic_prog_sfield(f)%MIM%immobile_sfield%old_sfield)
-         call scale(MIM_src, di%cv_mass_pressure_mesh_with_old_porosity) ! this has already inlcuded the cv pmesh
-         call addto (di%rhs, MIM_src)
-
-         call deallocate(MIM_src)
-         call deallocate(MIM_src_s)
+         end if
          
-         !chemical leaching src
-         !add the immobile src part to the ADE
-         if (di%generic_prog_sfield(f)%MIM%chem%have_chem) then
-           call allocate(leach_im_src, di%pressure_mesh)
-           call zero(leach_im_src)
 
-           call set(leach_im_src,di%generic_prog_sfield(f)%MIM%chem%im_src)
-           call scale(leach_im_src,di%porosity_pmesh)
-           call scale(leach_im_src,di%MIM_options%immobile_saturation(p)%ptr) !in mole per volume of heap
+         !-------the component addto the lhs matrix
+         !calculate (theta_s_new+alpha*dt)
+         call set(shared_lhs, theta_s)
 
-           call scale(leach_im_src,di%dt)
-           call scale(leach_im_src,di%MIM_options%mass_trans_coef(p)%ptr)
+         call addto(shared_lhs, di%MIM_options%mass_trans_coef(p)%ptr, scale=dt)
+         
+         !-------the component added to the rhs 
+         !calculate (theta_s_old*Cs_old)
+         call set(shared_rhs,theta_s_old)
 
+         call scale(shared_rhs,old_cs)
+        
+         if (.not.(di%generic_prog_sfield(f)%MIM%chem%if_src_linear)) then
+            
+            !the MIM without any leaching chemistry souces
+            !which is shared terms with the model with leaching chemistry souces but without source linearization
+            !-------the component add tp the rhs
+            !!!!calculate shared part rhs '(theta_s_old*Cs_old)/(theta_s_new+alpha*dt)'
+            call invert(shared_lhs) ! now shared lhs '1/(theta_s_new+alpha*dt)'
+            
+            call scale(shared_rhs,shared_lhs)
+        
+            !***add to rhs
+            call set(MIM_src, shared_rhs)
+            !'(alpha*theta_s_old*Cs_old)/(theta_s_new+alpha*dt)'
+            call scale(MIM_src, di%MIM_options%mass_trans_coef(p)%ptr)
+            call compute_cv_mass(di%positions,src_cv_mass, MIM_src)
+            call addto (di%rhs, src_cv_mass)
+                    
+            if(di%generic_prog_sfield(f)%MIM%chem%have_chem) then
+               call allocate(leach_im_src, di%pressure_mesh)
+               !change to the unit in per volume of heap
+               call set(leach_im_src,di%generic_prog_sfield(f)%MIM%chem%im_src%sfield)
+               call scale(leach_im_src,theta_s)
+                
+              !!! calculate the shared rhs, which is
+              !!! (theta_s_old*Cs_old)/(theta_s_new+alpha*dt)+(dt*S_immobile)/(theta_s_new+alpha*dt)
+               call set(MIM_src, shared_lhs) !shared lhs is '1/(theta_s_new+alpha*dt)'
+               call scale(MIM_src,leach_im_src)
+               call scale(MIM_src,dt) !(dt*S_immobile)/(theta_s_new+alpha*dt)
+               call addto(shared_rhs,MIM_src)
 
-           call scale(leach_im_src,temp_MIM_src)
-           call addto(di%rhs,leach_im_src)
+               !add the chemistry source part into rhs
+               !***(alpha*dt*S_immobile)/(theta_s_new+alpha*dt)
+               call scale(MIM_src,di%MIM_options%mass_trans_coef(p)%ptr)
 
-           call deallocate(leach_im_src)
-        end if
+               !change the mobile source into the unit of per volume of heap
+               call set(leach_im_src,di%generic_prog_sfield(f)%MIM%chem%mo_src%sfield)
+               call scale(leach_im_src,theta_d)
+               
+               !***(alpha*dt*S_immobile)/(theta_s_new+alpha*dt)+S_mobile
+               !final rhs is ('theta_d_old*Cd_old/dt)*(alpha*theta_s_old*Cs_old)/(theta_s_new+alpha*dt)+(alpha*dt*S_immobile)/(theta_s_new+alpha*dt)+S_mobile'
+               call addto(MIM_src,leach_im_src)
+               
+               call compute_cv_mass(di%positions,src_cv_mass,MIM_src)
 
+               call addto(di%rhs, src_cv_mass)
+
+               call deallocate(leach_im_src)
+               
+            end if
+
+            
+            !-------the component addto the lhs matrix
+            !!!!calculate (alpha*dt)/(theta_s_new+alpha*dt), which is the shared part           
+            call scale(shared_lhs,dt)
+            call scale(shared_lhs,di%MIM_options%mass_trans_coef(p)%ptr)
+            !***add to lhs
+            call set(MIM_src, shared_lhs)
+            !calculate (alpha^2*dt)/(theta_s_new+alpha*dt)
+            call scale(MIM_src,di%MIM_options%mass_trans_coef(p)%ptr)
+            !calculate '(alpha^2*dt)/(theta_s_new+alpha*dt)-alpha'
+            call addto(MIM_src,di%MIM_options%mass_trans_coef(p)%ptr, scale=-1.0)
+            call compute_cv_mass(di%positions,src_cv_mass, MIM_src)
+            call addto(di%lhs,src_cv_mass, scale=-1.0)
+            
+         else
+            !----------the MIM with leaching chemistry souces and source linearization---------
+
+            !---------add to rhs
+            call allocate(leach_im_src, di%pressure_mesh)
+            !the negative part of leaching immobile source, change to the unit in per volume of heap
+            call set(leach_im_src,di%generic_prog_sfield(f)%MIM%chem%im_src%n_src)
+            call scale(leach_im_src,theta_s)
+
+            node_loop3: do i=1,di%number_pmesh_node
+               if (shared_rhs%val(i)<=1.0D-15) then
+                  MIM_src%val(i)=0.0
+
+               else
+                  MIM_src%val(i)=theta_s%val(i)*dt*leach_im_src%val(i)/shared_rhs%val(i)!(theta_s*dt*S_NegativeImmobie)/(theta_s_old*Cs_old)
+               end if
+             
+            end do node_loop3
+            
+            call addto(MIM_src, shared_lhs, scale=-1.0)!-((theta_s_new+alpha*dt))+(theta_s*dt*S_NegativeImmobie)/(theta_s_old*Cs_old)
+            call scale(MIM_src, -1.0) !(theta_s_new+alpha*dt)-(theta_s*dt*S_NegativeImmobie)/(theta_s_old*Cs_old)
+            call invert(MIM_src) !1/((theta_s_new+alpha*dt)-(theta_s*dt*S_NegativeImmobie)/(theta_s_old*Cs_old))
+
+            !the positive part of leaching immobile source, change to the unit in per volume of heap
+            call set(leach_im_src,di%generic_prog_sfield(f)%MIM%chem%im_src%p_src)
+            call scale(leach_im_src,theta_s)
+
+            call scale(leach_im_src,dt)
+            
+            !!!the shared rhs is '(theta_s_old*Cs_old+dt*S_PositiveImmobile)/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)'
+            call addto(shared_rhs, leach_im_src)
+            call scale(shared_rhs,MIM_src)
+
+            !'alpha*(theta_s_old*Cs_old+dt*S_PositiveImmobile)/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)'
+            call set(MIM_src_s,shared_rhs)
+            call scale(MIM_src_s,di%MIM_options%mass_trans_coef(p)%ptr)
+
+            !the positive part of leaching mobile source, change to the unit in per volume of heap
+            call set(leach_im_src,di%generic_prog_sfield(f)%MIM%chem%mo_src%p_src)
+            call scale(leach_im_src,theta_d)
+
+            !**add to rsh, the total parts which are added to rhs are
+            !'alpha*(theta_s_old*Cs_old+dt*S_PositiveImmobile)/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)  + S_PositiveMobile)'
+            call addto(MIM_src_s, leach_im_src)
+            
+            call compute_cv_mass(di%positions,src_cv_mass,MIM_src_s)
+            call addto(di%rhs, src_cv_mass)
+
+            !--------------------add to the lhs matrix
+            !!!the shared lhs is
+            !!!alpha*dt/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)
+            call set(shared_lhs,MIM_src)
+            call scale(shared_lhs,dt)
+            call scale(shared_lhs,di%MIM_options%mass_trans_coef(p)%ptr)
+            
+            !the negative part of leaching mobile source, change to the unit in per volume of heap
+            call set(leach_im_src,di%generic_prog_sfield(f)%MIM%chem%mo_src%n_src)
+            call scale(leach_im_src,theta_d)            
+            call scale(leach_im_src,theta_d) !S_NegativeMobile*theta_d
+            
+            call set(MIM_src, old_cd)
+            call scale(MIM_src,theta_d_old)
+            
+            node_loop4: do i=1,di%number_pmesh_node
+               if (MIM_src%val(i)<=1.0D-15) then
+                  MIM_src%val(i)=0.0
+
+               else
+                  MIM_src%val(i)= leach_im_src%val(i)/MIM_src%val(i)  !S_NegativeMobile*theta_d/theta_d_old*Cd_old
+               end if
+             
+            end do node_loop4
+         
+            call set(MIM_src_s, shared_lhs)
+            call scale(MIM_src_s,di%MIM_options%mass_trans_coef(p)%ptr) !alpha^2*dt/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)
+
+            !****add to lhs matrix, the total part is
+            !-(S_NegativeMobile*theta_d/theta_d_old*Cd_old+alpha^2*dt/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)-alpha)
+            call addto(MIM_src, MIM_src_s)
+            call addto(MIM_src, di%MIM_options%mass_trans_coef(p)%ptr, scale=-1.0)
+            call compute_cv_mass(di%positions,src_cv_mass, MIM_src)
+            call addto(di%lhs, src_cv_mass, scale=-1.0)
+            
+            call deallocate(leach_im_src)
+         end if
+        
+        call deallocate(MIM_src)
+        call deallocate(MIM_src_s)
+        call deallocate(theta_s)
+        call deallocate(theta_s_old)
+        call deallocate(theta_d)
+        call deallocate(theta_d_old)
+        call deallocate(src_cv_mass)
+        call deallocate(old_cd)
+        call deallocate(old_cs)
   end subroutine darcy_trans_MIM_prog_sfield_allocate_rhs_lhs
 
   
   !solve the immobile  sfield 
-  subroutine darcy_trans_assemble_and_solve_immobile_sfield(di, p, f, temp_MIM_src)
+  subroutine darcy_trans_assemble_and_solve_immobile_sfield(di, p, f, shared_rhs, shared_lhs)
        
        type(darcy_impes_type), intent(inout) :: di
-       type(scalar_field), intent(in) :: temp_MIM_src
+       type(scalar_field), intent(in) :: shared_rhs, shared_lhs
        integer, intent(in) :: p
        integer, intent(in) :: f
 
-       ! local variable
-       type(scalar_field) :: temp_rhs
+        
+       ! calculate '(alpha*dt*C_d)/(theta_s+alpha*dt)'
+       !or '(alpha*dt*C_d)/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)' with src linearization
+       call set(di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield, shared_lhs)
+     
+       call scale(di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield, di%generic_prog_sfield(f)%sfield)
+      
+       !calculate '(alpha*dt*C_d+theta_s_old*C_s_old+dt*S_immobile)/(theta_s+alpha*dt)'
+       !or '(alpha*dt*C_d+theta_s_old*C_s_old+dt*S_PositiveImmobile)/(theta_s_new+alpha*dt-theta_s*dt*S_NegativeImmobie/theta_s_old*Cs_old)' with src linearization
+       call addto(di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield,shared_rhs)
        
-       call allocate(temp_rhs, di%pressure_mesh)
-       
-       ! calculate '(old_theta_s*old_C_s)/(theta_s+alpha*dt)'
-       call set(temp_rhs, temp_MIM_src)
-       call scale(temp_rhs, di%MIM_options%old_immobile_saturation(p)%ptr)
-
-       call scale(temp_rhs, di%old_porosity_pmesh)
-
-       call scale(temp_rhs, di%generic_prog_sfield(f)%MIM%immobile_sfield%old_sfield)
-
-       call set(di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield, temp_rhs)
-       
-       !calculate '(alpha*dt*C_d)/(theta_s+alpha*dt)'
-       call set(temp_rhs, temp_MIM_src)
-       call scale(temp_rhs,di%MIM_options%mass_trans_coef(p)%ptr)
-       call scale(temp_rhs, di%dt)
-       call scale(temp_rhs, di%generic_prog_sfield(f)%sfield) ! this use the C_d value at most recent time step n+1
-       
-       call addto(di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield, temp_rhs)
-       
-       !chemical leaching src
-       !add the immobile src '(dt*S)/(theta_s+alpha*dt)'
-       if (di%generic_prog_sfield(f)%MIM%chem%have_chem) then
-          call set(temp_rhs,di%generic_prog_sfield(f)%MIM%chem%im_src)
-          call scale(temp_rhs,di%porosity_pmesh)
-          call scale(temp_rhs,di%MIM_options%immobile_saturation(p)%ptr) !in mole per volume of heap
-          
-          call scale(temp_rhs,di%dt)
-          call scale(temp_rhs,temp_MIM_src)
-          call addto(di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield,temp_rhs)
-       end if
-
-       call deallocate(temp_rhs)
-
        ewrite(1,*) 'Finished assemble and solve immobile prog sfield ',trim(di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield%name),' of phase ',p
 
    end subroutine darcy_trans_assemble_and_solve_immobile_sfield
@@ -533,7 +693,7 @@ contains
       call zero(sfield)
       call zero(dfield)
       call zero(tb)
-      call zero(tfield)
+      call zero(tfield) 
 
       !the total liquid hold up
       call set(tb,di%porosity_pmesh)

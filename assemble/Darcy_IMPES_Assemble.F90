@@ -60,7 +60,8 @@ module darcy_impes_assemble_module
    use signal_vars, only : SIG_INT
    use global_parameters, only : FIELD_NAME_LEN, OPTION_PATH_LEN
 
-   !!*****03 July 2014 LCai ************use Leaching Chemical model****!
+   !!****** July 2014 LCai ****************!
+   use darcy_transport_model
    use darcy_impes_leaching_chemical_model
    use darcy_impes_assemble_type
    !!************Finish********************
@@ -93,7 +94,7 @@ module darcy_impes_assemble_module
              darcy_impes_calculate_divergence_total_darcy_velocity, &
              darcy_impes_calculate_inverse_cv_sa, &
              darcy_trans_MIM_assemble_and_solve_mobile_saturation, &  !**LCai 27 July 2013
-             darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh, & ! ** LCai 22 Aug 2013
+             darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh, & ! ** LCaDai 22 Aug 2013
              calculate_leach_prog_sfield_subcycle_terms, &
              leaching_prog_sfield_subcycle_initialize, &
              leaching_prog_sfield_subcycle_finalize, &
@@ -259,13 +260,11 @@ module darcy_impes_assemble_module
          call darcy_impes_calculate_densities(di)
          call darcy_impes_calculate_relperm_den_face_values_new(di)
          call darcy_trans_leaching_solve_generic_prog_sfields_sub(di)
-         if (minval(di%lc%dis%chal%ex%val)>=di%lcsub%start_extraction) then
-           if (di%lcsub%if_dinamic_dt) call darcy_trans_leaching_subcycling_dynamic_timestep(di)
-         end if
-      end if
+         !if (minval(di%lc%dis%chal%ex%val)>=di%lcsub%start_extraction) then
+          ! if (di%lcsub%if_dinamic_dt) call darcy_trans_leaching_subcycling_dynamic_timestep(di)
+        !end if
 
-      !******lcai**********leaching_temporary_change***03Mar2015
-      if (.not. di%lcsub%have_leach_subcycle) then
+      else
         call darcy_impes_assemble_and_solve_generic_prog_sfields(di)
         ! Calculate the sum of the saturations
         call darcy_impes_calculate_sum_saturation(di)
@@ -274,7 +273,9 @@ module darcy_impes_assemble_module
 
         ! Calculate the relative permeabilities of each phase
         call darcy_impes_calculate_relperm_fields(di)
+        
       end if
+
             
       ewrite(1,*) 'Finished Darcy IMPES assemble and solve part three'
            
@@ -2336,13 +2337,10 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
       integer :: i, imf ! ***imf is the index of immobile prog sfield ** LCai **
 
       ! *** 16 Aug 2013 ***LCai*****************************************************
-      character(len=FIELD_NAME_LEN) :: cp_imfield_name  !*** the name of the coupled immobile field with mobile field 
-                                                   !*** 16 Aug 2013 *** LCai ***
       
 
-      type(scalar_field) :: temp_MIM_src !*** the temperory term for source term which is '1/(theta_s+alpha*dt)'
+      type(scalar_field) :: shared_rhs, shared_lhs
 
-      type(scalar_field) :: leach_src !**the source term for leaching chemical model**16 July 2014 Lcai
 
       ! ***Finish *** LCai *********************************************************
 
@@ -2416,92 +2414,36 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
          call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
          
       end if
- 
-      ! ************** 15 & 22 Aug 2013 LCai ********************************!
-      !If the immobile prognostic field exist, solve the source term of Mobile-immobile model implicitly
-      if (di%generic_prog_sfield(f)%have_MIM_source) then
-         
-         call allocate(temp_MIM_src, di%pressure_mesh)
-         call zero(temp_MIM_src)
 
-         call zero(di%MIM_options%MIM_src)
-         call zero(di%MIM_options%MIM_src_s)
-         
-
-         !Addto the lhs matrix
-         !calculate 1/(theta_s+alpha*dt)
-         call set(di%MIM_options%MIM_src, di%MIM_options%immobile_saturation(p)%ptr)
-         
-         !check wether to scale with the porosity as a constant of a scalar field
-
-         call scale(di%MIM_options%MIM_src, di%porosity_pmesh)
-
-         call addto(di%MIM_options%MIM_src, di%MIM_options%mass_trans_coef(p)%ptr, scale=di%dt)
-         call invert(di%MIM_options%MIM_src, temp_MIM_src) !temp_MIM_src is '1/(theta_s+alpha*dt)'
-
-         call set(di%MIM_options%MIM_src, temp_MIM_src)
-         call scale(di%MIM_options%MIM_src, di%MIM_options%mass_trans_coef(p)%ptr) 
-         call scale(di%MIM_options%MIM_src, di%MIM_options%mass_trans_coef(p)%ptr)! repeated to scale with alpha**2
-         call scale(di%MIM_options%MIM_src, di%dt)
-         call addto(di%MIM_options%MIM_src, di%MIM_options%mass_trans_coef(p)%ptr, scale=-1.0)
-           
-         call compute_cv_mass(di%positions, di%MIM_options%MIM_src_s, di%MIM_options%MIM_src)
-
-         call addto(di%lhs, di%MIM_options%MIM_src_s, scale=-1.0)
-
-         !Addto the rhs matrix
-         !before start to compute rhs, zero the field to be used
-         call zero(di%MIM_options%MIM_src)
-
-         !extract the idex of coupled immobile prog sfield of this generic prog sfield
-         cp_imfield_name = di%generic_prog_sfield(f)%source_name
-         
-         imf= 0
-
-         do imf= 1, size(di%MIM_options%immobile_prog_sfield)
-           if (di%MIM_options%immobile_prog_sfield(imf)%phase == p) then
-             if (trim(di%MIM_options%immobile_prog_sfield(imf)%sfield%name) == trim(cp_imfield_name)) exit  
-           end if
-         end do
-
-         !check the selected immobile sfield is correct
-         if (.not.( trim(di%MIM_options%immobile_prog_sfield(imf)%source_name) == trim(di%generic_prog_sfield(f)%sfield%name))) then
-         FLExit('The source terms of the mobile-immobile concentration should coincide')
-         end if
-
-         !Add the source term with old immobile concentration 
-         call set(di%MIM_options%MIM_src,temp_MIM_src)
-         call scale(di%MIM_options%MIM_src, di%MIM_options%mass_trans_coef(p)%ptr)
-         call scale(di%MIM_options%MIM_src, di%MIM_options%old_immobile_saturation(p)%ptr)
-         call scale(di%MIM_options%MIM_src, di%MIM_options%immobile_prog_sfield(imf)%old_sfield)
-         call scale(di%MIM_options%MIM_src, di%cv_mass_pressure_mesh_with_old_porosity) ! this has already inlcuded the cv pmesh
-         call addto (di%rhs, di%MIM_options%MIM_src)
-
-      end if
-      ! *************Finish *** LCai **********************************!
       
-      if (di%lc%have_leach_chem_model) then 
-         if (di%generic_prog_sfield(f)%lc_src%src_linear%have) then 
-           !the source term linearization,add the positive source to rhs
-           !linearize the negative source terms and add to left hand
-           call add_leach_chemical_prog_src_linearization_to_lhs_rhs(di,f)
-         else   
-           !Add leaching chemical source term to rhs
-           call add_leach_chemical_prog_src_to_rhs(di,f)
-         end if
-      end if
-   
-
-     !***Leaching heat transfer model
-      if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then 
-         if (di%generic_prog_sfield(f)%lh_src%src_linear%have) then 
-           call darcy_trans_heat_transfer_prog_src_linearization_to_lhs_rhs(di,f) 
+      ! *********************************************LCai ********************************!
+      if (di%generic_prog_sfield(f)%MIM%have_MIM_source) then
+         
+         call allocate(shared_rhs, di%pressure_mesh)
+         call allocate(shared_lhs, di%pressure_mesh)
+         call zero(shared_rhs)
+         call zero(shared_lhs)
+        
+         if (di%generic_prog_sfield(f)%lc_src%have_chem_src) then
+            call allocate_leaching_chemical_prog_sfield_src(di,f,shared_rhs,shared_lhs)
+         else if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then
+            call allocate_leach_heat_transfer_prog_Temperature_src(di,f,shared_rhs,shared_lhs)
          else 
-           call calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di)
+            call darcy_trans_MIM_prog_sfield_allocate_rhs_lhs(di,p,f,shared_rhs, shared_lhs)           
          end if
+
+      else
+         if (di%generic_prog_sfield(f)%lc_src%have_chem_src) then
+            call allocate_leaching_chemical_prog_sfield_src(di,f)
+         else if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then
+            call allocate_leach_heat_transfer_prog_Temperature_src(di,f)           
+         end if
+         
       end if
- 
-      
+        
+
+     !*******************end********Cai******************************** 
+          
       ! Add diagonal lhs to matrix
       call addto_diag(di%matrix, di%lhs)
       
@@ -2531,10 +2473,8 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
          
          ! Apply any strong dirichlet BC's
          call apply_dirichlet_conditions(di%matrix, di%rhs_full, di%generic_prog_sfield(f)%sfield)
-
          ! Solve the sfield
          call petsc_solve(di%generic_prog_sfield(f)%sfield, di%matrix, di%rhs_full, di%state(p))
-
          ! Set the strong BC nodes to the values to be consistent
          call set_dirichlet_consistent(di%generic_prog_sfield(f)%sfield) 
       
@@ -2548,13 +2488,15 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
       ewrite(1,*) 'Finished assemble and solve sfield ',trim(di%generic_prog_sfield(f)%sfield%name),' of phase ',p
 
       
-      ! ******* 16 Aug 2013 *** LCai **********************
+      ! ***************** LCai **********************
       !Solve the immobile prog sfield if it exist
-      if (di%generic_prog_sfield(f)%have_MIM_source) then 
-          
-          call darcy_trans_assemble_and_solve_immobile_prog_sfield(di, p, f, imf, temp_MIM_src) 
+      if (di%generic_prog_sfield(f)%MIM%have_MIM_source) then 
+         
+         call darcy_trans_assemble_and_solve_immobile_sfield(di, p, f, shared_rhs, shared_lhs) 
+         call deallocate(shared_rhs)
+         call deallocate(shared_lhs)
 
-          call deallocate(temp_MIM_src)
+         call leaching_MIM_calculate_fields_and_ratio(di,p,f)
 
       end if
 
@@ -4161,13 +4103,13 @@ visc_ele_bdy(1)
          
          sat_effective = (sat_val_all_phases(2) - relperm_corr_residual_sats(2)) / &
                          (1.0 - relperm_corr_residual_sats(1) - relperm_corr_residual_sats(2))
-	 if ( sat_effective >= 1.0 ) then
+         if ( sat_effective >= 1.0 ) then
 	    sat_effective = 1.0
-	 end if 
+         end if 
          
-	 if ( sat_effective <= 0.0 ) then
+         if ( sat_effective <= 0.0 ) then
 	    sat_effective = 0.0
-	 end if 
+         end if 
 
          if (p == 1) then
 
@@ -5885,125 +5827,10 @@ visc_ele_bdy(1)
    
 ! ----------------------------------------------------------------------------
 
-! ******************26 July 2013 LCai ****************************************!
-!Slove the mobile saturation if MIM exist
-subroutine darcy_trans_MIM_assemble_and_solve_mobile_saturation(di)
-
-        type(darcy_impes_type), intent(inout) :: di
-        integer :: i
-        type(scalar_field), pointer :: total_sat => null()  !total saturation 
-        type(scalar_field), pointer :: immobile_sat  => null()  ! immobile saturation
-        type(scalar_field)  :: mobile_sat   !mobile saturation
-
-        call allocate(mobile_sat, di%pressure_mesh)
-        
-        do i= 2, di%number_phase
-
-          total_sat      => di%saturation(i)%ptr
-          immobile_sat   => di%MIM_options%immobile_saturation(i)%ptr
-
-          if (di%MIM_options%have_MIM(i)) then
-             ewrite(1, *) "calculate the mobile saturation of phase: ", i
-             call set(mobile_sat, total_sat)
-             call addto(mobile_sat, immobile_sat, scale=-1.0)
-             call set(di%MIM_options%mobile_saturation(i)%ptr, mobile_sat)
-          end if
-          nullify(immobile_sat, total_sat)
-          call zero(mobile_sat)
-        end do
-        
-        call deallocate(mobile_sat)
-
-end subroutine darcy_trans_MIM_assemble_and_solve_mobile_saturation
 
 
-! ******** 16 July 2013 LCai *************************************************
-!solve the immobile prog sfield 
-subroutine darcy_trans_assemble_and_solve_immobile_prog_sfield(di, p, f, imf, temp_MIM_src)
-       
-       type(darcy_impes_type), intent(inout) :: di
-       type(scalar_field), intent(in) :: temp_MIM_src
-       integer, intent(in) :: p
-       integer, intent(in) :: f
-       integer, intent(in) :: imf
 
-       ! local variable
-       type(scalar_field) :: temp_rhs
-       
-       call allocate(temp_rhs, di%pressure_mesh)
-       
-       ! calculate '(old_theta_s*old_C_s)/(theta_s+alpha*dt)'
-       call set(temp_rhs, temp_MIM_src)
-       call scale(temp_rhs, di%MIM_options%old_immobile_saturation(p)%ptr)
-
-       call scale(temp_rhs, di%old_porosity_pmesh)
-
-       call scale(temp_rhs, di%MIM_options%immobile_prog_sfield(imf)%old_sfield)
-
-       call set(di%MIM_options%immobile_prog_sfield(imf)%sfield, temp_rhs)
-       
-       !calculate '(alpha*dt*C_d)/(theta_s+alpha*dt)'
-       call set(temp_rhs, temp_MIM_src)
-       call scale(temp_rhs,di%MIM_options%mass_trans_coef(p)%ptr)
-       call scale(temp_rhs, di%dt)
-       call scale(temp_rhs, di%generic_prog_sfield(f)%sfield) ! this use the C_d value at most recent time step n+1
-
-       call addto(di%MIM_options%immobile_prog_sfield(imf)%sfield, temp_rhs)
-
-       call deallocate(temp_rhs)
-
-       ewrite(1,*) 'Finished assemble and solve immobile prog sfield ',trim(di%MIM_options%immobile_prog_sfield(imf)%sfield%name),' of phase ',p
-
-end subroutine darcy_trans_assemble_and_solve_immobile_prog_sfield
-
-
-! ********* 22 Aug 2013 *******LCai ***********************************
-
-subroutine darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh(field, projected_field, positions, ele)
-
-        type(scalar_field), intent(inout) :: field
-        type(scalar_field), intent(in) :: projected_field
-        type(vector_field), intent(in) :: positions
-        integer, intent(in) :: ele
-        type(element_type), pointer :: field_shape, proj_field_shape
-        real, dimension(ele_loc(field, ele)) :: little_rhs
-        real, dimension(ele_loc(field, ele), ele_loc(field, ele)) :: little_mass
-        real, dimension(ele_loc(field, ele), ele_loc(projected_field, ele)) :: little_mba
-        real, dimension(ele_loc(field, ele), ele_loc(projected_field, ele)) :: little_mba_int
-        real, dimension(ele_ngi(field, ele)) :: detwei
-        real, dimension(ele_loc(projected_field, ele)) :: proj_field_val 
-        
-        integer :: i, j, k
-
-
-          field_shape => ele_shape(field, ele)
-          proj_field_shape => ele_shape(projected_field, ele)
-
-          call transform_to_physical(positions, ele, detwei=detwei)
-
-          little_mass = shape_shape(field_shape, field_shape, detwei)
-
-          ! And compute the product of the basis functions
-          little_mba = 0
-          do i=1,ele_ngi(field, ele)
-           forall(j=1:ele_loc(field, ele), k=1:ele_loc(projected_field, ele))
-             little_mba_int(j, k) = field_shape%n(j, i) * proj_field_shape%n(k, i)
-           end forall
-           little_mba = little_mba + little_mba_int * detwei(i)
-          end do
-
-          proj_field_val = ele_val(projected_field, ele)
-          little_rhs = matmul(little_mba, proj_field_val)
-
-          call solve(little_mass, little_rhs)
-          call set(field, ele_nodes(field, ele), little_rhs)
- 
-
-end subroutine darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh
-
-! ********************Finish*** LCai **********************************
-
-
+!*************************************LCAI******************************************
 
 !calculate leaching mass transport ADE by subcycling
 subroutine darcy_trans_leaching_solve_generic_prog_sfields_sub(di)
@@ -6048,10 +5875,8 @@ subroutine darcy_trans_leaching_solve_generic_prog_single_sfield_sub(di,f,p,isub
    !local variable
    real :: isub_s,isub_e
    integer :: i, imf !for mobile-immobile
-   character(len=FIELD_NAME_LEN) :: cp_imfield_name  !*** the name of the coupled immobile field
-   type(scalar_field) :: temp_MIM_src !*** the temperory term for source term which is '1/(theta_s+alpha*dt)'
-   type(scalar_field) :: leach_src !**the source term for leaching chemical model
-  
+
+   type(scalar_field) :: shared_rhs, shared_lhs,field_pmesh,dtheta_dt
 
    ewrite(1,*) 'Assemble and solve sfield ',trim(di%generic_prog_sfield(f)%sfield%name),' of phase ',p,'with subcycling'
 
@@ -6078,7 +5903,6 @@ subroutine darcy_trans_leaching_solve_generic_prog_single_sfield_sub(di,f,p,isub
                                                             di%sfield_bc_value, &
                                                             di%sfield_bc_flag)
    
-
    isub_s=real(isub-1)/real(di%lcsub%number_subcycle)
    isub_e=real(isub)/real(di%lcsub%number_subcycle)
    call zero(di%lhs)         
@@ -6092,15 +5916,28 @@ subroutine darcy_trans_leaching_solve_generic_prog_single_sfield_sub(di,f,p,isub
          
    end if
 
+   call allocate(dtheta_dt, di%pressure_mesh)
+   call allocate(field_pmesh, di%pressure_mesh)
+   call zero(dtheta_dt)
+   call zero(field_pmesh)
+   
    !add the interpolation of (theta/dt) to the left hand side
-   call addto(di%lhs,di%lcsub%sub_lht(p), scale=isub_e*(1.0/di%lcsub%sub_dt))
- 
-   call addto(di%lhs,di%lcsub%old_sub_lht(p),scale=(1-isub_e)*(1.0/di%lcsub%sub_dt))
+   call addto(dtheta_dt,di%lcsub%sub_lht(p), scale=isub_e*(1.0/di%lcsub%sub_dt)) 
+   call addto(dtheta_dt,di%lcsub%old_sub_lht(p),scale=(1-isub_e)*(1.0/di%lcsub%sub_dt))
+   call compute_cv_mass(di%positions, field_pmesh, dtheta_dt) 
+   call addto(di%lhs,field_pmesh)
+   
    !add the interpolation of old iterated (theta/dt)*sfield to the right hand side
-   call addto(di%rhs,di%lcsub%sub_lht(p),scale=isub_s*(1.0/di%lcsub%sub_dt))
-   call addto(di%rhs,di%lcsub%old_sub_lht(p),scale=(1-isub_s)*(1.0/di%lcsub%sub_dt))
+   call zero(dtheta_dt)
+   call addto(dtheta_dt,di%lcsub%sub_lht(p),scale=isub_s*(1.0/di%lcsub%sub_dt))
+   call addto(dtheta_dt,di%lcsub%old_sub_lht(p),scale=(1-isub_s)*(1.0/di%lcsub%sub_dt))
+   call compute_cv_mass(di%positions, field_pmesh, dtheta_dt) 
+   call addto(di%rhs, field_pmesh)
    call scale(di%rhs,di%lcsub%iterated_sfield(f))
 
+   call deallocate(field_pmesh)
+   call deallocate(dtheta_dt)
+   
    !add the interpolation of implicit low order advection and diffusion terms to matrix and rhs
    call addto(di%matrix,di%lcsub%sub_adv_diff(f),scale=isub_e)
    call addto(di%matrix,di%lcsub%old_sub_adv_diff(f),scale=1-isub_e)
@@ -6116,31 +5953,36 @@ subroutine darcy_trans_leaching_solve_generic_prog_single_sfield_sub(di,f,p,isub
       call addto(di%rhs, di%cv_mass_pressure_mesh_with_source)
          
    end if
-  
-   if (di%lc%have_leach_chem_model) then
-      if (di%generic_prog_sfield(f)%lc_src%src_linear%have) then
-        !the source term linearization,add the positive source to rhs
-        !linearize the negative source terms and add to left hand
-        call add_leach_chemical_prog_src_linearization_to_lhs_rhs(di,f)
-      else   
-        !Add leaching chemical source term to rhs
-        call add_leach_chemical_prog_src_to_rhs(di,f)
-      end if
-   end if
-   
 
-     !***Leaching heat transfer model
-   if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then
-      if (di%generic_prog_sfield(f)%lh_src%src_linear%have) then
-        call darcy_trans_heat_transfer_prog_src_linearization_to_lhs_rhs(di,f) 
-      else
-        call calculate_leach_heat_transfer_prog_Temperature_src_to_rhs(di)
+   !********allocate the leaching chemical src*************
+   if (di%generic_prog_sfield(f)%MIM%have_MIM_source) then
+         
+      call allocate(shared_rhs, di%pressure_mesh)
+      call allocate(shared_lhs, di%pressure_mesh)
+      call zero(shared_rhs)
+      call zero(shared_lhs)
+        
+      if (di%generic_prog_sfield(f)%lc_src%have_chem_src) then
+         call allocate_leaching_chemical_prog_sfield_src(di,f,shared_rhs,shared_lhs,isub)
+      else if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then
+         call allocate_leach_heat_transfer_prog_Temperature_src(di,f,shared_rhs,shared_lhs,isub)
+      else 
+         call darcy_trans_MIM_prog_sfield_allocate_rhs_lhs(di,p,f,shared_rhs, shared_lhs,isub)           
       end if
+
+   else
+      
+      if (di%generic_prog_sfield(f)%lc_src%have_chem_src) then
+         call allocate_leaching_chemical_prog_sfield_src(di,f,isub=isub)
+         
+      else if (di%generic_prog_sfield(f)%lh_src%have_heat_src) then
+         call allocate_leach_heat_transfer_prog_Temperature_src(di,f,isub=isub)           
+      end if
+
    end if
- 
+         
    ! Add diagonal lhs to matrix
    call addto_diag(di%matrix, di%lhs)
-
 
    ! Solve for each face value iteration (default is 1)
    do i = 1, di%generic_prog_sfield(f)%sfield_cv_options%number_face_value_iteration
@@ -6167,6 +6009,17 @@ subroutine darcy_trans_leaching_solve_generic_prog_single_sfield_sub(di,f,p,isub
       call set_dirichlet_consistent(di%generic_prog_sfield(f)%sfield) 
 
    end do
+
+   !Solve the immobile prog sfield if it exist
+   if (di%generic_prog_sfield(f)%MIM%have_MIM_source) then 
+          
+      call darcy_trans_assemble_and_solve_immobile_sfield(di, p, f, shared_rhs, shared_lhs) 
+      call deallocate(shared_rhs)
+      call deallocate(shared_lhs)
+
+      call leaching_MIM_calculate_fields_and_ratio(di,p,f)
+
+   end if
           
 end subroutine darcy_trans_leaching_solve_generic_prog_single_sfield_sub 
 
@@ -6184,10 +6037,17 @@ subroutine calculate_leach_prog_sfield_subcycle_terms(di)
   integer :: i,f,p
 
   !calculate liquid hold-up
-  do i=1, di%number_phase
-    call zero(di%lcsub%sub_lht(i))
-    call addto(di%lcsub%sub_lht(i),di%cv_mass_pressure_mesh_with_porosity)
-    call scale(di%lcsub%sub_lht(i),di%saturation(i)%ptr)
+  do i=1, di%number_phase    
+     if (di%MIM_options%have_MIM(i)) then
+       call set(di%lcsub%sub_lht(i),di%porosity_pmesh)       
+       call scale(di%lcsub%sub_lht(i),di%MIM_options%mobile_saturation(i)%ptr)
+       call set(di%lcsub%sub_lht_im(i),di%porosity_pmesh)
+       call scale(di%lcsub%sub_lht_im(i),di%MIM_options%old_immobile_saturation(i)%ptr)
+    else
+       call set(di%lcsub%sub_lht(i),di%porosity_pmesh)
+       call scale(di%lcsub%sub_lht(i),di%saturation(i)%ptr)
+    end if
+    
   end do
 
   !calculate advection-diffusion terms
@@ -6713,7 +6573,11 @@ subroutine darcy_trans_leaching_sub_copy_to_old(di)
     type(darcy_impes_type), intent(inout) :: di
     integer :: i,f
     do i=1, di%number_phase
-      call set(di%lcsub%old_sub_lht(i),di%lcsub%sub_lht(i))
+       call set(di%lcsub%old_sub_lht(i),di%lcsub%sub_lht(i))
+       if (di%MIM_options%have_MIM(i)) then
+          call set(di%lcsub%old_sub_lht_im(i),di%lcsub%sub_lht_im(i))
+       end if
+       
     end do
 
     do i=1,size(di%generic_prog_sfield)
@@ -6727,7 +6591,11 @@ subroutine darcy_trans_leaching_sub_copy_to_iterated(di)
    integer :: f
 
    do f=1,size(di%generic_prog_sfield)
-     call set(di%lcsub%iterated_sfield(f),di%generic_prog_sfield(f)%sfield)
+      call set(di%lcsub%iterated_sfield(f),di%generic_prog_sfield(f)%sfield)
+      if (di%MIM_options%have_MIM(di%generic_prog_sfield(f)%phase)) then
+         call set(di%lcsub%iterated_imsfield(f),di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield)
+      end if
+      
    end do
 end subroutine darcy_trans_leaching_sub_copy_to_iterated
 
@@ -6739,10 +6607,11 @@ subroutine leaching_prog_sfield_subcycle_initialize(di)
 
   if (di%lcsub%have_leach_subcycle) then
     call get_option('/Leaching_chemical_model/leaching_chemical_dt_subcycle/number_of_subcycling', &
-            & di%lcsub%number_subcycle)
+         & di%lcsub%number_subcycle)
     do i=1,size(di%state(1)%scalar_fields) 
        if (trim(di%state(1)%scalar_names(i))==trim('subcycling_dt')) then
-         di%lcsub%sub_dt=> di%state(1)%scalar_fields(i)%ptr%val(1)
+          di%lcsub%sub_dt=> di%state(1)%scalar_fields(i)%ptr%val(1)
+          stat=0
          exit
        end if
     end do
@@ -6752,15 +6621,27 @@ subroutine leaching_prog_sfield_subcycle_initialize(di)
     end if
 
     di%lcsub%sub_dt = di%dt/real(di%lcsub%number_subcycle)
+
     !allocate liquid holdup
     allocate(di%lcsub%sub_lht(di%number_phase))
     allocate(di%lcsub%old_sub_lht(di%number_phase))
+    if (di%MIM_options%have_MIM_phase) then
+       allocate(di%lcsub%sub_lht_im(di%number_phase))
+       allocate(di%lcsub%old_sub_lht_im(di%number_phase))
+    end if
 
     do i=1, di%number_phase
       call allocate(di%lcsub%sub_lht(i),di%pressure_mesh)
       call zero(di%lcsub%sub_lht(i))
       call allocate(di%lcsub%old_sub_lht(i),di%pressure_mesh)
       call zero(di%lcsub%old_sub_lht(i))
+      if (di%MIM_options%have_MIM(i)) then
+         call allocate(di%lcsub%sub_lht_im(i),di%pressure_mesh)
+         call zero(di%lcsub%sub_lht_im(i))
+         call allocate(di%lcsub%old_sub_lht_im(i),di%pressure_mesh)
+         call zero(di%lcsub%old_sub_lht_im(i))
+      end if
+      
     end do
 
     !allocate the matrix of advection-diffusion-absoption terms
@@ -6770,6 +6651,11 @@ subroutine leaching_prog_sfield_subcycle_initialize(di)
     allocate(di%lcsub%sub_rhs(f))
     allocate(di%lcsub%old_sub_rhs(f))
     allocate(di%lcsub%iterated_sfield(f))
+
+    if (di%MIM_options%have_MIM_phase) then
+       allocate(di%lcsub%iterated_imsfield(f))
+    end if
+    
     do i=1,f
       call allocate(di%lcsub%sub_adv_diff(i),di%sparsity_pmesh_pmesh)
       call zero(di%lcsub%sub_adv_diff(i))
@@ -6781,6 +6667,10 @@ subroutine leaching_prog_sfield_subcycle_initialize(di)
       call zero(di%lcsub%old_sub_rhs(i))
       call allocate(di%lcsub%iterated_sfield(i),di%pressure_mesh)
       call zero(di%lcsub%iterated_sfield(i))
+      if (di%generic_prog_sfield(i)%MIM%have_MIM_source) then
+         call allocate(di%lcsub%iterated_imsfield(i),di%pressure_mesh)
+         call zero(di%lcsub%iterated_imsfield(i))
+      end if
     end do
 
     call darcy_trans_leaching_subcycling_dynamic_timestep_initialize(di)
@@ -6797,9 +6687,18 @@ subroutine leaching_prog_sfield_subcycle_finalize(di)
      do i=1, di%number_phase
         call deallocate(di%lcsub%sub_lht(i))
         call deallocate(di%lcsub%old_sub_lht(i))
+        if (di%MIM_options%have_MIM(i)) then
+          call deallocate(di%lcsub%sub_lht_im(i))
+          call deallocate(di%lcsub%old_sub_lht_im(i))
+        end if
+        
      end do
      deallocate(di%lcsub%sub_lht)
      deallocate(di%lcsub%old_sub_lht)
+     if (di%MIM_options%have_MIM_phase) then
+        deallocate(di%lcsub%sub_lht_im)
+        deallocate(di%lcsub%old_sub_lht_im)
+     end if
 
      f=size(di%lcsub%sub_adv_diff)
      do i=1, f
@@ -6808,12 +6707,14 @@ subroutine leaching_prog_sfield_subcycle_finalize(di)
        call deallocate(di%lcsub%old_sub_adv_diff(i))
        call deallocate(di%lcsub%old_sub_rhs(i))
        call deallocate(di%lcsub%iterated_sfield(i))
+       call deallocate(di%lcsub%iterated_imsfield(i))
      end do
      deallocate(di%lcsub%sub_adv_diff)
      deallocate(di%lcsub%sub_rhs)
      deallocate(di%lcsub%old_sub_adv_diff)
      deallocate(di%lcsub%old_sub_rhs)
      deallocate(di%lcsub%iterated_sfield)
+     deallocate(di%lcsub%iterated_imsfield)
 
      di%lcsub%have_leach_subcycle=.false.
    end if

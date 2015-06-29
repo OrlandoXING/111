@@ -6,7 +6,7 @@ import pylab
 #####the porosity by python script-will use the galarkin projection to change the porosity mesh
 vt = fluidity_tools.stat_parser('../darcy_impes_MIM_1D_test_python_porosity.stat')
 cd = vt['Phase2']['C_d']['integral']
-cs = vt['Phase2']['ImmobileC_d']['integral']
+cs = vt['Phase2']['C_dImmobile']['integral']
 prt=vt['Phase1']['Porosity'][u'max']
 msat=vt['Phase2']['MobileSaturation'][u'max']
 isat=vt['Phase2']['ImmobileSaturation'][u'max']
@@ -21,7 +21,7 @@ t_py=t[u'value']
 #####the porosity of prescribed constant value 
 vt = fluidity_tools.stat_parser('../darcy_impes_MIM_1D_test_python_porosity.stat')
 cd = vt['Phase2']['C_d']['integral']
-cs = vt['Phase2']['ImmobileC_d']['integral']
+cs = vt['Phase2']['C_dImmobile']['integral']
 prt=vt['Phase1']['Porosity'][u'max']
 msat=vt['Phase2']['MobileSaturation'][u'max']
 isat=vt['Phase2']['ImmobileSaturation'][u'max']
@@ -35,9 +35,9 @@ t_pr=t[u'value']
 
 
 #IIIIIIIIIIIIIIInumerical integration by Trapezoidal rule
-dth=vt['dt'][u'value'][0]/2
-lt=len(rtd)-1
-Int_model=dth*(rtd[0]+2*sum(rtd[1:lt])+rtd[lt])
+#dth=vt['dt'][u'value'][0]/2
+#lt=len(rtd)-1
+#Int_model=dth*(rtd[0]+2*sum(rtd[1:lt])+rtd[lt])
 
 #extract the data from excel
 f=file('RTD_ex.csv','r')

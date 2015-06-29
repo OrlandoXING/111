@@ -1745,10 +1745,10 @@ Finite element discretisation may become unbounded so limiting is often necessar
             <ref name="darcy_impes_generic_scalar_field_src"/>
           </optional>
           <optional>
-            <ref name="darcy_impes_prog_field_chemical_source_term"/>
+            <ref name="darcy_MIM_generic_scalar_field_immobile_src"/>
           </optional>
           <optional>
-            <ref name="darcy_MIM_generic_scalar_field_immobile_src"/>
+            <ref name="darcy_impes_prog_field_chemical_source_term"/>
           </optional>
           <ref name="field_output_options"/>
           <ref name="darcy_impes_include_stat"/>
@@ -1856,23 +1856,79 @@ Default value is 1.</a:documentation>
     </element>
   </define>
   <define name="darcy_MIM_generic_scalar_field_immobile_src">
-    <element name="ImmobileSource">
-      <a:documentation>This is the coupled source term for the mobile-immobile model,
-By turning on this term, the source term will be calculated implicitly</a:documentation>
-      <element name="algorithm">
-        <a:documentation>Please write down the name of the corresponding immobile source field,
-Which should be exactly the same with the name set in the MobileImmobileModel option</a:documentation>
+    <optional>
+      <element name="scalar_field">
+        <a:documentation>the postfix of the field will be added to 'Immobile',
+i.e. if the name of this scalar field is 'cd', then the name will be changed to be
+'Immobilecd'  </a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
         <attribute name="name">
-          <value>Internal</value>
+          <value>Immobile</value>
         </attribute>
-        <attribute name="material_phase_support">
-          <value>multiple</value>
-        </attribute>
-        <attribute name="source_field_name">
-          <data type="string"/>
-        </attribute>
+        <element name="diagnostic">
+          <ref name="mesh_choice_pressure"/>
+          <ref name="darcy_impes_internal_algorithm"/>
+          <ref name="initial_condition_scalar"/>
+          <ref name="darcy_impes_diagnostic_scalar_field"/>
+          <optional>
+            <ref name="darcy_impes_recalculation_options"/>
+          </optional>
+        </element>
+        <element name="scalar_field">
+          <a:documentation>this is the averaged mass between mobile and immobile field</a:documentation>
+          <attribute name="rank">
+            <value>0</value>
+          </attribute>
+          <attribute name="name">
+            <value>Average_mass</value>
+          </attribute>
+          <element name="diagnostic">
+            <ref name="mesh_choice_pressure"/>
+            <ref name="darcy_impes_internal_algorithm"/>
+            <ref name="darcy_impes_diagnostic_scalar_field"/>
+            <optional>
+              <ref name="darcy_impes_recalculation_options"/>
+            </optional>
+          </element>
+        </element>
+        <element name="scalar_field">
+          <a:documentation>This is weighting ratio of the mobile part to the average mass</a:documentation>
+          <attribute name="rank">
+            <value>0</value>
+          </attribute>
+          <attribute name="name">
+            <value>Mobile_ratio</value>
+          </attribute>
+          <element name="diagnostic">
+            <ref name="mesh_choice_pressure"/>
+            <ref name="darcy_impes_internal_algorithm"/>
+            <ref name="darcy_impes_diagnostic_scalar_field"/>
+            <optional>
+              <ref name="darcy_impes_recalculation_options"/>
+            </optional>
+          </element>
+        </element>
+        <element name="scalar_field">
+          <a:documentation>This is weighting ratio of the immobile part to the average mass</a:documentation>
+          <attribute name="rank">
+            <value>0</value>
+          </attribute>
+          <attribute name="name">
+            <value>Immobile_ratio</value>
+          </attribute>
+          <element name="diagnostic">
+            <ref name="mesh_choice_pressure"/>
+            <ref name="darcy_impes_internal_algorithm"/>
+            <ref name="darcy_impes_diagnostic_scalar_field"/>
+            <optional>
+              <ref name="darcy_impes_recalculation_options"/>
+            </optional>
+          </element>
+        </element>
       </element>
-    </element>
+    </optional>
   </define>
   <define name="darcy_impes_first_phase_bc_pressure_field">
     <element name="boundary_conditions">
@@ -2573,7 +2629,8 @@ enabled) and file (if /io/convergence_file is enabled)</a:documentation>
   <define name="MobileImmobileModel">
     <element name="MobileImmobileModel">
       <a:documentation>The Mobile-Immobile model which divide the total saturation into two regions, 
-which are the dynamic saturation and the immobile saturation.</a:documentation>
+which are the dynamic saturation and the immobile saturation.
+Please turn on the corresponding immobile field under the mobile prognostic fields under the same fase</a:documentation>
       <element name="scalar_field">
         <a:documentation>this is the Immobile Saturation</a:documentation>
         <attribute name="rank">
@@ -2650,31 +2707,6 @@ which are the dynamic saturation and the immobile saturation.</a:documentation>
           </choice>
         </element>
       </optional>
-      <zeroOrMore>
-        <element name="scalar_field">
-          <a:documentation>Please set the immobile field name as the same name of the mobile source field name,
-the prefix of 'Immobile' will be added to be the field name,
-i.e. if the name of this scalar field is set to be 'cd', then the name will be changed to be
-'Immobilecd'  </a:documentation>
-          <attribute name="name">
-            <data type="string"/>
-          </attribute>
-          <element name="prognostic">
-            <ref name="mesh_choice_pressure"/>
-            <oneOrMore>
-              <ref name="initial_condition_scalar"/>
-            </oneOrMore>
-            <element name="source_field_name">
-              <a:documentation>Please write down the name of the mobile source field which the immobile field is based on</a:documentation>
-              <data type="string" datatypeLibrary=""/>
-            </element>
-            <ref name="field_output_options"/>
-            <ref name="darcy_impes_include_stat"/>
-            <ref name="adaptivity_options_prognostic_scalar_field"/>
-            <ref name="interpolation_algorithm_scalar"/>
-          </element>
-        </element>
-      </zeroOrMore>
     </element>
   </define>
   <define name="cv_stats">
@@ -2729,6 +2761,52 @@ i.e. if the name of this scalar field is set to be 'cd', then the name will be c
       </optional>
       <optional>
         <ref name="darcy_impes_leaching_mineral_dissolution_prog_src"/>
+      </optional>
+      <optional>
+        <element name="Mobile_Immobile_Model">
+          <a:documentation>This is the the leaching chemical source terms from the immobile concentration</a:documentation>
+          <element name="scalar_field">
+            <a:documentation>This is the average leaching chemical source term based on the mobile solution
+mole per  volume of mobile solution
+while the chemical source term under the prognostic field is mole per total volume of solution, which is based on the average mass of both mobile and immobile solution </a:documentation>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <attribute name="name">
+              <value>Mobile_chemical_src</value>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="darcy_impes_internal_algorithm"/>
+              <ref name="darcy_impes_diagnostic_scalar_field"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+              <ref name="field_output_options"/>
+              <ref name="darcy_impes_include_stat"/>
+            </element>
+          </element>
+          <element name="scalar_field">
+            <a:documentation>This is the chemical source term of the contribution from the immobile part
+mole per volume of immobile solution</a:documentation>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <attribute name="name">
+              <value>Immobile_chemical_src</value>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="darcy_impes_internal_algorithm"/>
+              <ref name="darcy_impes_diagnostic_scalar_field"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+              <ref name="field_output_options"/>
+              <ref name="darcy_impes_include_stat"/>
+            </element>
+          </element>
+        </element>
       </optional>
     </element>
   </define>
@@ -2891,6 +2969,23 @@ the value of this source term is based on unit: mole/m^3_heap</a:documentation>
               </optional>
             </element>
           </element>
+          <element name="scalar_field">
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <attribute name="name">
+              <value>Gangue_mineral_acid_dissolution</value>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="darcy_impes_internal_algorithm"/>
+              <ref name="darcy_impes_chemical_stoichiometric_factor"/>
+              <ref name="darcy_impes_diagnostic_scalar_field"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+            </element>
+          </element>
         </choice>
       </oneOrMore>
     </element>
@@ -3041,8 +3136,8 @@ mole/s per m^3 of heap</a:documentation>
                 <value>S0_dissolution</value>
               </attribute>
               <element name="scalar_field">
-                <a:documentation>The molar concentration of jarosite,
-mole per m^3 of liquid solution</a:documentation>
+                <a:documentation>The molar concentration of S0,
+mole per m^3 of heap</a:documentation>
                 <attribute name="rank">
                   <value>0</value>
                 </attribute>
@@ -3103,6 +3198,37 @@ please specify the percentage of the S0 to dissolve,noramlly 0.05 to 0.2 </a:doc
               </element>
               <element name="H_name">
                 <a:documentation>The scalar filed name for H+ in phase 2</a:documentation>
+                <data type="string" datatypeLibrary=""/>
+              </element>
+            </element>
+            <element name="reaction">
+              <attribute name="name">
+                <value>Gangue_mineral_acid_dissolution</value>
+              </attribute>
+              <element name="scalar_field">
+                <a:documentation>This is the dissolution rate of gangue mineral by acid
+mole/s per m^3 of heap</a:documentation>
+                <attribute name="rank">
+                  <value>0</value>
+                </attribute>
+                <attribute name="name">
+                  <value>dG_dt</value>
+                </attribute>
+                <element name="diagnostic">
+                  <ref name="mesh_choice_pressure"/>
+                  <ref name="darcy_impes_internal_algorithm"/>
+                  <ref name="darcy_impes_diagnostic_scalar_field"/>
+                  <optional>
+                    <ref name="darcy_impes_recalculation_options"/>
+                  </optional>
+                </element>
+              </element>
+              <element name="rate_constant">
+                <a:documentation>please specify the rate constant of dissolution, 1/s </a:documentation>
+                <ref name="real"/>
+              </element>
+              <element name="H_name">
+                <a:documentation>The scalar filed name for H+ in Phase 2 used to gangue mineral dissolution</a:documentation>
                 <data type="string" datatypeLibrary=""/>
               </element>
             </element>
@@ -3465,10 +3591,10 @@ NOT Finished yet</a:documentation>
             <ref name="darcy_impes_generic_scalar_field_src"/>
           </optional>
           <optional>
-            <ref name="darcy_impes_leaching_liquid_phase_temperature_src"/>
+            <ref name="darcy_MIM_generic_scalar_field_immobile_src"/>
           </optional>
           <optional>
-            <ref name="darcy_MIM_generic_scalar_field_immobile_src"/>
+            <ref name="darcy_impes_leaching_liquid_phase_temperature_src"/>
           </optional>
           <ref name="field_output_options"/>
           <ref name="darcy_impes_include_stat"/>
@@ -3783,6 +3909,52 @@ H_solution_reaction/(cp_l*rho_l),unit: (k/s)*(m^3_l/m^3_heap)</a:documentation>
           </element>
         </optional>
       </element>
+      <optional>
+        <element name="Mobile_Immobile_Model">
+          <a:documentation>This is the the leaching chemical source terms from the immobile concentration</a:documentation>
+          <element name="scalar_field">
+            <a:documentation>This is the average leaching chemical source term based on the mobile solution
+mole per  volume of mobile solution
+while the chemical source term under the prognostic field is mole per total volume of solution, which is based on the average mass of both mobile and immobile solution </a:documentation>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <attribute name="name">
+              <value>Mobile_chemical_src</value>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="darcy_impes_internal_algorithm"/>
+              <ref name="darcy_impes_diagnostic_scalar_field"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+              <ref name="field_output_options"/>
+              <ref name="darcy_impes_include_stat"/>
+            </element>
+          </element>
+          <element name="scalar_field">
+            <a:documentation>This is the chemical source term of the contribution from the immobile part
+mole per volume of immobile solution</a:documentation>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <attribute name="name">
+              <value>Immobile_chemical_src</value>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="darcy_impes_internal_algorithm"/>
+              <ref name="darcy_impes_diagnostic_scalar_field"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+              <ref name="field_output_options"/>
+              <ref name="darcy_impes_include_stat"/>
+            </element>
+          </element>
+        </element>
+      </optional>
     </element>
   </define>
 </grammar>

@@ -19,8 +19,8 @@ module darcy_transport_types
 
 
   type immobile_sfield_type
-      type(scalar_field), pointer :: sfield
-      type(scalar_field), pointer :: old_sfield
+      type(scalar_field),pointer  :: sfield
+      type(scalar_field),pointer  :: old_sfield
   end type immobile_sfield_type
    
   
