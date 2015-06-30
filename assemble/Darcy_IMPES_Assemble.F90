@@ -6592,7 +6592,7 @@ subroutine darcy_trans_leaching_sub_copy_to_iterated(di)
 
    do f=1,size(di%generic_prog_sfield)
       call set(di%lcsub%iterated_sfield(f),di%generic_prog_sfield(f)%sfield)
-      if (di%MIM_options%have_MIM(di%generic_prog_sfield(f)%phase)) then
+      if (di%generic_prog_sfield(f)%MIM%have_MIM_source) then
          call set(di%lcsub%iterated_imsfield(f),di%generic_prog_sfield(f)%MIM%immobile_sfield%sfield)
       end if
       
@@ -6707,15 +6707,20 @@ subroutine leaching_prog_sfield_subcycle_finalize(di)
        call deallocate(di%lcsub%old_sub_adv_diff(i))
        call deallocate(di%lcsub%old_sub_rhs(i))
        call deallocate(di%lcsub%iterated_sfield(i))
-       call deallocate(di%lcsub%iterated_imsfield(i))
+       if (di%generic_prog_sfield(i)%MIM%have_MIM_source) then
+          call deallocate(di%lcsub%iterated_imsfield(i))
+       end if
+       
      end do
      deallocate(di%lcsub%sub_adv_diff)
      deallocate(di%lcsub%sub_rhs)
      deallocate(di%lcsub%old_sub_adv_diff)
      deallocate(di%lcsub%old_sub_rhs)
      deallocate(di%lcsub%iterated_sfield)
-     deallocate(di%lcsub%iterated_imsfield)
-
+     if (di%MIM_options%have_MIM_phase) then
+        deallocate(di%lcsub%iterated_imsfield)
+     end if
+     
      di%lcsub%have_leach_subcycle=.false.
    end if
    
