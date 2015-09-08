@@ -45,8 +45,8 @@ module darcy_impes_leaching_chemical_model
   
      !local parameter
      type(vector_field), pointer :: position =>null()
-     integer :: p,f,flc, ns, nd, nb,fb, stat,ndata,nshape(2),n_md,f_md
-     character(len=OPTION_PATH_LEN) :: option_path, reaction_name, path_l,path_md,md_name,name_temp
+     integer :: p,f,flc, ns, nd, nb,fb, stat,ndata,nshape(2),n_md,f_md,i,nc,isf
+     character(len=OPTION_PATH_LEN) :: option_path, reaction_name, path_l,path_md,md_name,name_temp,cap_name
         !---------------------allocate the fields in the chemical model-------------
         !for the solution phase reactions
         if (have_option('/Leaching_chemical_model/SolutionPhaseReactions')) then           
@@ -119,7 +119,7 @@ module darcy_impes_leaching_chemical_model
                   !get the name of the the scalar field used for gas phase oxygen and liquid phase oxygen
                   call get_option(trim(path_l)//'/og_name',di%lc%sol%oxdi%og_name)
                   call get_option(trim(path_l)//'/o2_name',di%lc%sol%oxdi%o2_name)
-
+                  
                 case default
                   FLAbort("Leaching chemical algorithm " // trim(reaction_name) // " not found")
               end select
@@ -143,6 +143,29 @@ module darcy_impes_leaching_chemical_model
               select case(trim(reaction_name))
               
                 case('CuFeS2_oxidation_aqueous_ferric_sulfate')
+                  if (have_option(trim(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field'))) then
+                     di%lc%dis%chal%cap%have_cap =.true.
+                     nc=option_count(trim(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field'))
+                     allocate(di%lc%dis%chal%cap%field_index(nc))
+                     allocate(di%lc%dis%chal%cap%cap_val(nc))
+                     
+                     do i =1, nc
+                        call get_option(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field/name', & 
+                             cap_name)
+                        call get_option(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field::'//trim(cap_name)//'/field_maximun_value', di%lc%dis%chal%cap%cap_val(i))
+                        
+                        do isf=1,size(di%generic_prog_sfield)
+                           if (trim(cap_name)==trim(di%generic_prog_sfield(isf)%sfield%name)) then
+                              di%lc%dis%chal%cap%field_index(i)=isf                      
+                           end if
+                           
+                        end do
+                        
+                     end do
+                     
+                  else
+                     di%lc%dis%chal%cap%have_cap =.false.
+                  end if 
                   di%lc%dis%chal%dcdt => extract_scalar_field(di%state(2), 'chal_dCuFeS2_dt', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named chal_dCuFeS2_dt')
@@ -217,6 +240,31 @@ module darcy_impes_leaching_chemical_model
                 
                 
                 case('FeS2_oxidation_aqueous_ferric_sulfate')
+
+                  if (have_option(trim(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field'))) then
+                     di%lc%dis%pyri%cap%have_cap =.true.
+                     nc=option_count(trim(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field'))
+                     allocate(di%lc%dis%pyri%cap%field_index(nc))
+                     allocate(di%lc%dis%pyri%cap%cap_val(nc))
+                     
+                     do i =1, nc
+                        call get_option(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field/name', & 
+                             cap_name)
+                        call get_option(trim(option_path)//'::'//trim(reaction_name)//'/Cap_field::'//trim(cap_name)//'/field_maximun_value', di%lc%dis%pyri%cap%cap_val(i))
+                        
+                        do isf=1,size(di%generic_prog_sfield)
+                           if (trim(cap_name)==trim(di%generic_prog_sfield(isf)%sfield%name)) then
+                              di%lc%dis%pyri%cap%field_index(i)=isf
+                           end if
+                           
+                        end do
+                        
+                     end do
+                     
+                  else
+                     di%lc%dis%pyri%cap%have_cap =.false.
+                  end if 
+                   
                   di%lc%dis%pyri%dcdt => extract_scalar_field(di%state(2), 'pyri_dFeS2_dt', stat=stat)
                   if (.not. stat==0) then
                     FLAbort('failed to extract the leaching reaction named pyri_dFeS2_dt')
@@ -548,10 +596,20 @@ module darcy_impes_leaching_chemical_model
         end if
 
         !----------allocate the generic prognostic leaching source terms-------------       
-        !--loop over phase
+        !--loop over field
         do f=1, size(di%generic_prog_sfield)
+              
           option_path=di%generic_prog_sfield(f)%sfield%option_path
           p=di%generic_prog_sfield(f)%phase
+          !check the maximun value cap
+          if (have_option(trim(option_path)//'/prognostic/LeachingChemicalSourceTerm/field_maximun_value')) then
+             di%generic_prog_sfield(f)%have_cap=.true.   
+             call get_option(trim(option_path)//'/prognostic/LeachingChemicalSourceTerm/field_maximun_value', di%generic_prog_sfield(f)%cap_val)
+          else
+             di%generic_prog_sfield(f)%have_cap=.false.   
+             
+          end if
+          
           !---check for heat transfer source under temperature field
           !check the source linearization
           if (have_option(trim(option_path)//'/prognostic/leaching_temperature_sources/Source_Linearization')) then
@@ -586,6 +644,7 @@ module darcy_impes_leaching_chemical_model
           else
             di%generic_prog_sfield(f)%lc_src%src_linear%have=.false.
           end if
+                            
 
           !---check for heat transfer source under temperature field
           ns=option_count(trim(option_path)//'/prognostic/leaching_temperature_sources/heat_transfer_sources/scalar_field')
@@ -658,6 +717,13 @@ module darcy_impes_leaching_chemical_model
           
         end do
 
+        !-------------------solid liquid wetting efficiency------------------------------
+        if (have_option(trim('/Leaching_chemical_model/liquid_solid_wetting_efficiency'))) then
+           di%lc%wet_eff%have_wet_eff =.true.
+           di%lc%wet_eff%rock_d => extract_scalar_field(di%state(1), trim('Rock_diameter'))
+           di%lc%wet_eff%wet_eff => extract_scalar_field(di%state(1), trim('Wetting_efficiency'))
+        end if
+
         
   end subroutine initialize_leaching_chemical_model
 
@@ -674,6 +740,13 @@ module darcy_impes_leaching_chemical_model
      character(len=OPTION_PATH_LEN) :: option_path, reaction_name
      
      di%lc%have_leach_chem_model= .False.
+
+     if (di%lc%wet_eff%have_wet_eff) then
+        di%lc%wet_eff%have_wet_eff =.false.
+        nullify(di%lc%wet_eff%rock_d)
+        nullify(di%lc%wet_eff%wet_eff)
+     end if
+     
      
      !deallocate leaching chemical model
      if (di%lc%have_sol) then
@@ -696,6 +769,7 @@ module darcy_impes_leaching_chemical_model
 
            case('Oxygen_dissolution')
               nullify(di%lc%sol%oxdi%dcdt)
+              
          end select
          
        end do
@@ -723,6 +797,12 @@ module darcy_impes_leaching_chemical_model
               deallocate(di%lc%dis%chal%spline_coe)
               deallocate(di%lc%dis%chal%exp_ex)
               deallocate(di%lc%dis%chal%exp_exrk)
+              if (di%lc%dis%chal%cap%have_cap) then
+                 di%lc%dis%chal%cap%have_cap=.false.
+                 deallocate(di%lc%dis%chal%cap%field_index)
+                 deallocate(di%lc%dis%chal%cap%cap_val)
+              end if
+              
               
            case('FeS2_oxidation_aqueous_ferric_sulfate')
               nullify(di%lc%dis%pyri%dcdt)
@@ -734,6 +814,11 @@ module darcy_impes_leaching_chemical_model
               deallocate(di%lc%dis%pyri%spline_coe)
               deallocate(di%lc%dis%pyri%exp_ex)
               deallocate(di%lc%dis%pyri%exp_exrk)
+              if (di%lc%dis%pyri%cap%have_cap) then
+                 di%lc%dis%pyri%cap%have_cap=.false.
+                 deallocate(di%lc%dis%pyri%cap%field_index)
+                 deallocate(di%lc%dis%pyri%cap%cap_val)
+              end if
 
            case('S0_dissolution')
               nullify(di%lc%dis%sulf%S0)
@@ -751,6 +836,10 @@ module darcy_impes_leaching_chemical_model
 
      !deallocate leaching prognostic source field 
      do f=1, size(di%generic_prog_sfield)
+        if (di%generic_prog_sfield(f)%have_cap) then
+           di%generic_prog_sfield(f)%have_cap=.false.
+        end if
+        
         if (di%generic_prog_sfield(f)%MIM%chem%if_src_linear) then
            di%generic_prog_sfield(f)%MIM%chem%if_src_linear= .false.
            call deallocate(di%generic_prog_sfield(f)%MIM%chem%im_src%p_src)
@@ -862,11 +951,11 @@ module darcy_impes_leaching_chemical_model
 
         !--------------for mineral dissolution-----------------
         ! Chalcopyrite oxidation 
-         if (associated(di%lc%dis%chal%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
+         if (associated(di%lc%dis%chal%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di,di%state,&
                                           rock_temperature,di%number_pmesh_node,dt,di%lc%dis%chal,&
                                           di%saturation(2)%ptr)
          !pyrite dissolution
-         if (associated(di%lc%dis%pyri%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di%state,&
+         if (associated(di%lc%dis%pyri%dcdt)) call calculate_mineral_dissolution_semi_empirical_model(di,di%state,&
                                           rock_temperature,di%number_pmesh_node,dt,di%lc%dis%pyri,&
                                           di%saturation(2)%ptr)
          !S0 dissolution
@@ -887,11 +976,16 @@ module darcy_impes_leaching_chemical_model
             node_loop: do i=1,di%number_pmesh_node
                !reaction only start when liquid saturation is not zero
                if (di%saturation(2)%ptr%val(i)>=1.0e-4) then
-                 !calculate the equilibrium constant ft, o2=og*ft
+                  !calculate the equilibrium constant ft
+                  !the rate of reaction is in the form of
+                  !A1*[ft^-1][DO][Ferrous^2][H^-0.25]exp(-Ea/(RT)) in mol/m^3
+                  !A1=A_org/1000.0, where A_org is the oringical prefactor in
+                  ! 'A_org*Po*[Ferrous^2][H^-0.25]exp(-Ea/(RT))'
                  T=di%lc%ht%liquid_temperature%val(i)
-                 ft=(0.046*(T**2.0)+203.35*T*DLOG(T/298.0)-(299.378+0.092*T)*(T-298)-20.591*(10.0**3.0))/(T*8.3144)
+                 ft=(0.046*(T**2.0)+203.35*T*DLOG(T/298.0)-(299.378+0.092*T)*(T-298)-20.591*(10.0**3.0))/(T*8.3144) 
                  ft=EXP(ft)
                  A(i)=di%lc%sol%feox%ak%A%val(i)/ft
+                 
                else
                  A(i)=0.0
                end if
@@ -900,7 +994,7 @@ module darcy_impes_leaching_chemical_model
             call calculate_solution_phase_arrhenius_type_reaction_rate(di%state,&
                  A,di%lc%ht%liquid_temperature,di%number_pmesh_node,di%lc%sol%feox)
             
-            !change the mole/(m^3 solution)/s to mole/(m^3 heap)/s       
+            !change the mole/(m^3 solution)/s to mole/(m^3 heap)/s     
             call scale(di%lc%sol%feox%dcdt,di%porosity_pmesh)
             
             call scale(di%lc%sol%feox%dcdt,di%saturation(2)%ptr)
@@ -923,7 +1017,8 @@ module darcy_impes_leaching_chemical_model
      
       contains 
 
-        subroutine calculate_mineral_dissolution_semi_empirical_model(states,temperature,node_number,dt,mineral,sat)
+        subroutine calculate_mineral_dissolution_semi_empirical_model(di,states,temperature,node_number,dt,mineral,sat)
+              type(darcy_impes_type), intent(inout) :: di
               type(leaching_semi_empirical_model_type), intent(inout) :: mineral
               type(state_type),dimension(:), intent(in) :: states
               integer, intent(in) :: node_number
@@ -939,8 +1034,10 @@ module darcy_impes_leaching_chemical_model
               real, dimension(4) :: a_c !the constants used to calculate arrhenius reattion rate
                                         !pre-factor,activation energy,gas constant,temperature
               character(len=FIELD_NAME_LEN) :: cb_name !the name of the reacting species
-              integer :: p, nspecies, isp, node, stat
-             
+              integer :: p, nspecies, isp, node, stat,icap
+
+              real :: wet_eff
+              
               !get the number of species which take part in reaction
               nspecies = size(mineral%ak%bulk)             
               allocate(cb(nspecies), m(nspecies))
@@ -978,8 +1075,23 @@ module darcy_impes_leaching_chemical_model
                      call set(mineral%ex_r, node, 0.0)
                      call set(mineral%ex, node, ext)
                      call set(mineral%dcdt, node, 0.0)
-                     cycle
+                     cycle node_loop
                    end if
+
+                   !check the cap of the reaction
+                   !if the cap field reach the maximun value, stop reaction of that node
+                   if (mineral%cap%have_cap) then
+                      
+                      do icap=1, size(mineral%cap%field_index)
+                         if (di%generic_prog_sfield(mineral%cap%field_index(icap))%sfield%val(node)>=mineral%cap%cap_val(icap)) then
+                            call set(mineral%ex_r, node, 0.0)
+                            call set(mineral%ex, node, ext)
+                            call set(mineral%dcdt, node, 0.0)
+                            cycle node_loop
+                         end if                       
+                      end do                      
+                   end if
+                   
 
                    !the pre_factor is ingnored in the semi-imperical model, set to 1.0
                    a_c(1)=node_val(mineral%ak%A, node)
@@ -1007,7 +1119,14 @@ module darcy_impes_leaching_chemical_model
                        call set(mineral%dcdt, node, 0.0)
                    else                           
                        !do cubic spline interpolation for current extraction rate with k
-                       call cubic_spline_interpolation(a,b,c,d,mineral%exp_ex,ext,ext_rk) 
+                       call cubic_spline_interpolation(a,b,c,d,mineral%exp_ex,ext,ext_rk)
+
+                       !calculate wetting efficiency
+                       if (di%lc%wet_eff%have_wet_eff) then
+                          call calculate_solid_liquid_wetting_efficiency(di, node, wet_eff)
+                          k_rate = wet_eff*k_rate
+                       end if
+                       
                        ext_r = ext_rk * k_rate
                    
                        !update the new extraction rate, unit is extraction per day
@@ -1053,6 +1172,7 @@ module darcy_impes_leaching_chemical_model
               real :: k_rate
               
               integer :: p, nspecies, isp, node, stat
+                
 
               !get the number of species which take part in reaction
               nspecies = size(reaction%ak%bulk)
@@ -1082,7 +1202,9 @@ module darcy_impes_leaching_chemical_model
               node_loop: do node=1, node_number
                    
                    if (abs(A(node))<=1.0e-16) then
+                      
                       call set(reaction%dcdt, node, 0.0)
+                      
                    else
                      !the pre_factor is ingnored in the semi-imperical model, set to 1.0
                      a_c(1)=A(node)
@@ -1124,9 +1246,11 @@ module darcy_impes_leaching_chemical_model
            k_rate=ac(1)*(EXP(ac(2)/(ac(3)*ac(4))))
            do isp= 1, nspecies                 
               cb_n = node_val(cb(isp)%ptr, node)
-              if (cb_n <=0.1) then
+
+              if (cb_n <=0.00000001) then
                  if (m(isp) > 0.0) then
                    k_rate=0.0  !the species with positive order is the reactant, stop reaction
+
                    return
                 else
                    cb_n  = 1.0 !the species with negative order is the product
@@ -1213,7 +1337,13 @@ module darcy_impes_leaching_chemical_model
 
      node_loop: do i=1,di%number_pmesh_node
         !in mole/m3_heap/s
-        di%lc%dis%gang%dcdt%val(i)=-H%val(i)*di%lc%dis%gang%u*di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)
+        if (H%val(i)<0.1) then
+           di%lc%dis%gang%dcdt%val(i)=0.0
+        else
+           
+           di%lc%dis%gang%dcdt%val(i)=-H%val(i)*di%lc%dis%gang%u*di%porosity_pmesh%val(i)*di%saturation(2)%ptr%val(i)
+        end if
+        
      end do node_loop
 
      nullify(H)
@@ -1250,7 +1380,7 @@ module darcy_impes_leaching_chemical_model
 
       do i=1,di%number_pmesh_node         
          !if reactant Fe3 is near zero, stop reaction
-         if ((Fe3%val(i)<=0.1) .or. (di%saturation(2)%ptr%val(i)<1.0e-8)) then
+         if ((Fe3%val(i)<=0.01) .or. (di%saturation(2)%ptr%val(i)<1.0e-8)) then
            di%lc%sol%jaro%dcdt%val(i)=0.0
            cycle
            
@@ -1358,13 +1488,16 @@ module darcy_impes_leaching_chemical_model
           
           ! the transfer of oxygen from liquid phase to gas phase in unit of mole/m^3_heap
           d_O=(1.0/(ft/theta1+1.0/theta2))*(o2%val(i)-ft*og%val(i))
+
           di%lc%sol%oxdi%dcdt%val(i)=d_O
           !add the equilibrium term of oxygen dissolution to gas phase and liquid phase oxygen
           !for gas phase
           og_src%val(i)=d_O/theta1
+
           og%val(i)=og%val(i)+og_src%val(i)
           !for liquid phase, if MIM, this is the average mass of liquid oxygen, mole per total volume of solution
           o2_src%val(i)=-d_O/theta2
+
           o2%val(i)=o2%val(i)+o2_src%val(i)
           !for the mobile part of liquid oxygen
           if (di%MIM_options%have_MIM(2)) then
@@ -1651,8 +1784,8 @@ module darcy_impes_leaching_chemical_model
                    if (di%generic_prog_sfield(f)%sfield%val(i)<=1.0D-15) then
                       src_n%val(i)=0.0
                    else
-                      theta_d=di%MIM_options%mobile_saturation(p)%ptr%val(i)*di%porosity_pmesh%val(i)
-                      old_theta_d=di%MIM_options%old_mobile_saturation(p)%ptr%val(i)*di%old_porosity_pmesh%val(i)
+                      theta_d=di%sat_ADE%val(i)*di%porosity_pmesh%val(i)
+                      old_theta_d=di%old_sat_ADE%val(i)*di%old_porosity_pmesh%val(i)
                       src_n%val(i)=-src_n%val(i)*theta_d/(di%generic_prog_sfield(f)%old_sfield%val(i)*old_theta_d) !'-S_negative*thta_d/(C_old*theta_d_old' 
                    end if
                  
@@ -1769,8 +1902,7 @@ module darcy_impes_leaching_chemical_model
            end if
 
          end if
-        
-          
+           
           node_loop1: do i=1,di%number_pmesh_node
             single_src%val(i)=single_src%val(i)/(di%porosity_pmesh%val(i)*di%saturation(p)%ptr%val(i))
             !this the reaction src based on the total averaged concentration
@@ -1778,7 +1910,7 @@ module darcy_impes_leaching_chemical_model
           end do node_loop1
           
         end do
-
+        
       end if
 
       !for the mineral dissolution ractions
@@ -1825,17 +1957,18 @@ module darcy_impes_leaching_chemical_model
            end if
 
          end if
-          
+         
           node_loop2: do i=1,di%number_pmesh_node
             single_src%val(i)=single_src%val(i)/(di%porosity_pmesh%val(i)*di%saturation(p)%ptr%val(i))
             !this the reaction src based on the total averaged concentration
-            di%generic_prog_sfield(f)%lc_src%sfield_dis_src(n)%sfield%val(i)=single_src%val(i) !mole/m^3_solution/s               
+            di%generic_prog_sfield(f)%lc_src%sfield_dis_src(n)%sfield%val(i)=single_src%val(i) !mole/m^3_solution/s
+            
           end do node_loop2 
           
         end do
         
      end if
-
+     
       !Add leaching chemical source term to rhs
       if (di%generic_prog_sfield(f)%MIM%have_MIM_source) then
          call allocate(theta_m,di%pressure_mesh)
@@ -1901,7 +2034,7 @@ module darcy_impes_leaching_chemical_model
          call deallocate(theta_im)
          call deallocate(theta_m)
       end if
-
+      
       !*************Add to RHS and LHS************************************************
       !If the immobile  field exist, solve the source term of Mobile-immobile model implicitly
       if (di%generic_prog_sfield(f)%MIM%have_MIM_source) then
@@ -1911,6 +2044,7 @@ module darcy_impes_leaching_chemical_model
             call darcy_trans_MIM_prog_sfield_allocate_rhs_lhs(di,p,f,shared_rhs, shared_lhs)
          end if
       else
+         
          !----------When the MIM is turned off----------------------
          !Add the source term to the RHS
          call allocate(src_cv_mass,di%pressure_mesh)
@@ -1929,15 +2063,17 @@ module darcy_impes_leaching_chemical_model
                     old_theta_d=di%lcsub%sub_lht(p)%val(i)*isub_s+di%lcsub%old_sub_lht(p)%val(i)*(1-isub_s)
                     leach_src_n%val(i)=-leach_src_n%val(i)*theta_d/(di%lcsub%iterated_sfield(f)%val(i)*old_theta_d) !'-S_negative*thta_d/(C_old*theta_d_old' 
                  end if
-
+ 
               else
+                 
                  
                  if (di%generic_prog_sfield(f)%sfield%val(i)<=1.0D-15) then
                     leach_src_n%val(i)=0.0
                  else
-                    theta_d=di%MIM_options%mobile_saturation(p)%ptr%val(i)*di%porosity_pmesh%val(i)
-                    old_theta_d=di%MIM_options%old_mobile_saturation(p)%ptr%val(i)*di%old_porosity_pmesh%val(i)
-                    leach_src_n%val(i)=-leach_src_n%val(i)*theta_d/(di%generic_prog_sfield(f)%sfield%val(i)*old_theta_d) !'-S_negative*thta_d/(C_old*theta_d_old' 
+                    theta_d=di%sat_ADE%val(i)*di%porosity_pmesh%val(i)
+                    old_theta_d=di%old_sat_ADE%val(i)*di%old_porosity_pmesh%val(i)
+                    leach_src_n%val(i)=-leach_src_n%val(i)*theta_d/(di%generic_prog_sfield(f)%sfield%val(i)*old_theta_d) !'-S_negative*thta_d/(C_old*theta_d_old'
+                    
                  end if
                  
               end if
@@ -1954,9 +2090,9 @@ module darcy_impes_leaching_chemical_model
          
          end if
          call deallocate(src_cv_mass)
-           
+         
       end if
-
+  
       call deallocate(leach_src)
       call deallocate(single_src)
 
@@ -1967,9 +2103,47 @@ module darcy_impes_leaching_chemical_model
 
       nullify(src)
 
-   end subroutine allocate_leaching_chemical_prog_sfield_src
-   
+    end subroutine allocate_leaching_chemical_prog_sfield_src
 
+    subroutine calculate_solid_liquid_wetting_efficiency(di, node, wet_eff)
+      type(darcy_impes_type), intent(inout) :: di
+      integer, intent(in) :: node
+      real, intent(out) :: wet_eff
+      
+      real:: Ga, Re,u,mu,rho,g,poro,d
+
+      !the velocity magnitude of darcy flux
+      u=norm2(node_val(di%darcy_velocity(2)%ptr,node))
+
+      !the gravity magnitude
+      g=di%gravity_magnitude
+      if (g<=1.0e-10) then
+         g=9.8
+      end if
+     
+      !the liquid viscosity
+      mu=node_val(di%lviscosity_pmesh,node)
+
+      !liquid density
+      rho=node_val(di%density(2)%ptr,node)
+
+      !heap porosity
+      poro=node_val(di%porosity_pmesh,node)
+
+      !rock particle diameter
+      d=node_val(di%lc%wet_eff%rock_d,node)
+
+      !Galileo number
+      Ga=((d*poro/(1.0-poro))**3.0)*((rho/mu)**2.0)*g
+
+      !Reynolds number
+      Re=u*rho*d/mu/(1.0-poro)
+      
+      wet_eff=1.104*(Re**(1.0/3.0))*((1/Ga)**(1.0/9.0))
+
+      call set(di%lc%wet_eff%wet_eff,node,wet_eff)
+    end subroutine calculate_solid_liquid_wetting_efficiency
+    
    !---------------------some accessory subroutines----------------------------------------
 
    subroutine cubic_spline_interpolation(a,b,c,d,x_data,x,y)

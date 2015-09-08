@@ -766,6 +766,9 @@ at the first timestep or not.</a:documentation>
     <optional>
       <ref name="darcy_impes_non_first_phase_temperature_field"/>
     </optional>
+    <optional>
+      <ref name="darcy_impes_pmesh_porosity_viscosity_field"/>
+    </optional>
     <zeroOrMore>
       <ref name="darcy_impes_generic_scalar_field"/>
     </zeroOrMore>
@@ -1284,6 +1287,18 @@ relperm_2 = sat_2**4</a:documentation>
         <ref name="comment"/>
         <attribute name="name">
           <value>Corey2PhaseOpposite</value>
+        </attribute>
+        <optional>
+          <ref name="darcy_impes_residual_saturations"/>
+        </optional>
+      </element>
+      <element name="correlation">
+        <a:documentation>Use the opposite to Corey 2 phase correlation such that:
+relperm_1 = (1 - sat_2**2) * (1 - sat_2)**2,
+relperm_2 = sat_2**4</a:documentation>
+        <ref name="comment"/>
+        <attribute name="name">
+          <value>Corey2PhaseOpposite_Correct</value>
         </attribute>
         <optional>
           <ref name="darcy_impes_residual_saturations"/>
@@ -2757,6 +2772,13 @@ Please turn on the corresponding immobile field under the mobile prognostic fiel
         </element>
       </optional>
       <optional>
+        <element name="field_maximun_value">
+          <a:documentation>place a cap of the field
+to limit the maximun value, ensure the stability of the sigular corner of the heap</a:documentation>
+          <ref name="real"/>
+        </element>
+      </optional>
+      <optional>
         <ref name="darcy_impes_leaching_solution_phase_prog_src"/>
       </optional>
       <optional>
@@ -3006,8 +3028,59 @@ the value of this source term is based on unit: mole/m^3_heap</a:documentation>
         <ref name="leaching_mineral_dissolution_options"/>
         <ref name="leaching_solution_phase_options"/>
         <ref name="leaching_heat_transfer_model"/>
+        <optional>
+          <ref name="leaching_liquid_solid_wetting_efficiency"/>
+        </optional>
       </element>
     </optional>
+  </define>
+  <define name="leaching_liquid_solid_wetting_efficiency">
+    <element name="liquid_solid_wetting_efficiency">
+      <a:documentation>This is the solid wetting efficiency to correct the reaction kenitics
+based on (Muthanna, et al, 1995)</a:documentation>
+      <element name="scalar_field">
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Rock_diameter</value>
+        </attribute>
+        <choice>
+          <element name="prescribed">
+            <ref name="mesh_choice_pressure"/>
+            <ref name="prescribed_scalar_field"/>
+            <ref name="field_output_options"/>
+            <ref name="darcy_impes_include_stat"/>
+            <optional>
+              <ref name="darcy_impes_recalculation_options"/>
+            </optional>
+          </element>
+          <element name="diagnostic">
+            <ref name="mesh_choice_pressure"/>
+            <ref name="darcy_impes_diagnostic_scalar_field"/>
+            <optional>
+              <ref name="darcy_impes_recalculation_options"/>
+            </optional>
+          </element>
+        </choice>
+      </element>
+      <element name="scalar_field">
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Wetting_efficiency</value>
+        </attribute>
+        <element name="diagnostic">
+          <ref name="mesh_choice_pressure"/>
+          <ref name="darcy_impes_internal_algorithm"/>
+          <ref name="darcy_impes_diagnostic_scalar_field"/>
+          <optional>
+            <ref name="darcy_impes_recalculation_options"/>
+          </optional>
+        </element>
+      </element>
+    </element>
   </define>
   <define name="leaching_chemical_dt_subcycle_options">
     <element name="leaching_chemical_dt_subcycle">
@@ -3071,18 +3144,37 @@ dt_sub&lt;=beta*C_mast_field/[dC_mast_field/dt]</a:documentation>
         <a:documentation>this is the mineral dissolution option for the leaching chemical model
 this contains the semi-empirical model based on the experiment result
 for pytite and chalcopyrite dissolution
-and the elemental sulper dissolution</a:documentation>
+and the elemental sulper dissolution
+The internal algorithms currently available are for chalcopyrite leaching</a:documentation>
         <zeroOrMore>
           <choice>
             <element name="reaction">
-              <a:documentation>The internal algorithms currently available are for chalcopyrite leaching</a:documentation>
+              <a:documentation>This is the semi-empirical model for chalcopyrite dissolution 
+by ferric sulfate
+the value of this reaction is based on unit: mole/m^3_heap</a:documentation>
               <attribute name="name">
                 <value>CuFeS2_oxidation_aqueous_ferric_sulfate</value>
               </attribute>
+              <zeroOrMore>
+                <element name="Cap_field">
+                  <a:documentation>when the reacting species reach the extreme values somewhere. stop the reaction at that place 
+fill in the same name of the field in the phase to limite reaction</a:documentation>
+                  <attribute name="name">
+                    <data type="string"/>
+                  </attribute>
+                  <element name="phase">
+                    <a:documentation>the phase number of the field,
+e.g if the field is under Phase1 then enter 1</a:documentation>
+                    <ref name="integer"/>
+                  </element>
+                  <element name="field_maximun_value">
+                    <a:documentation>place a cap of the field
+to limit the maximun value, ensure the stability of the sigular corner of the heap</a:documentation>
+                    <ref name="real"/>
+                  </element>
+                </element>
+              </zeroOrMore>
               <element name="scalar_field">
-                <a:documentation>This is the semi-empirical model for chalcopyrite dissolution 
-by ferric sulfate
-the value of this reaction is based on unit: mole/m^3_heap</a:documentation>
                 <attribute name="rank">
                   <a:documentation>This is the concentraction change rate of CuFeS2
 mole/s per m^3 of heap</a:documentation>
@@ -3104,13 +3196,32 @@ mole/s per m^3 of heap</a:documentation>
               <ref name="rate_constant"/>
             </element>
             <element name="reaction">
+              <a:documentation>This is the semi-empirical model for pyrite dissolution 
+by ferric sulfate
+the value of this reaction is based on unit: mole/m^3_heap</a:documentation>
               <attribute name="name">
                 <value>FeS2_oxidation_aqueous_ferric_sulfate</value>
               </attribute>
+              <zeroOrMore>
+                <element name="Cap_field">
+                  <a:documentation>when the reacting species reach the extreme values somewhere. stop the reaction at that place
+fill in the same name of the field in the phase to limite reaction </a:documentation>
+                  <attribute name="name">
+                    <data type="string"/>
+                  </attribute>
+                  <element name="phase">
+                    <a:documentation>the phase number of the field,
+e.g if the field is under Phase1 then enter 1</a:documentation>
+                    <ref name="integer"/>
+                  </element>
+                  <element name="field_maximun_value">
+                    <a:documentation>place a cap of the field
+to limit the maximun value, ensure the stability of the sigular corner of the heap</a:documentation>
+                    <ref name="real"/>
+                  </element>
+                </element>
+              </zeroOrMore>
               <element name="scalar_field">
-                <a:documentation>This is the semi-empirical model for pyrite dissolution 
-by ferric sulfate
-the value of this reaction is based on unit: mole/m^3_heap</a:documentation>
                 <attribute name="rank">
                   <a:documentation>This is the concentraction change rate of FeS2
 mole/s per m^3 of heap</a:documentation>
@@ -3600,6 +3711,56 @@ NOT Finished yet</a:documentation>
           <ref name="darcy_impes_include_stat"/>
           <ref name="adaptivity_options_prognostic_scalar_field"/>
           <ref name="interpolation_algorithm_scalar"/>
+        </element>
+      </choice>
+    </element>
+  </define>
+  <define name="darcy_impes_pmesh_porosity_viscosity_field">
+    <element name="scalar_field">
+      <attribute name="rank">
+        <value>0</value>
+      </attribute>
+      <attribute name="name">
+        <value>Porosity_pmesh</value>
+      </attribute>
+      <choice>
+        <element name="prescribed">
+          <ref name="mesh_choice_pressure"/>
+          <ref name="prescribed_scalar_field"/>
+          <ref name="field_output_options"/>
+          <ref name="darcy_impes_include_stat"/>
+        </element>
+        <element name="diagnostic">
+          <ref name="mesh_choice_pressure"/>
+          <ref name="scalar_galerkin_projection_algorithm"/>
+          <ref name="darcy_impes_diagnostic_scalar_field"/>
+          <optional>
+            <ref name="darcy_impes_recalculation_options"/>
+          </optional>
+        </element>
+      </choice>
+    </element>
+    <element name="scalar_field">
+      <attribute name="rank">
+        <value>0</value>
+      </attribute>
+      <attribute name="name">
+        <value>Viscosity_pmesh</value>
+      </attribute>
+      <choice>
+        <element name="prescribed">
+          <ref name="mesh_choice_pressure"/>
+          <ref name="prescribed_scalar_field"/>
+          <ref name="field_output_options"/>
+          <ref name="darcy_impes_include_stat"/>
+        </element>
+        <element name="diagnostic">
+          <ref name="mesh_choice_pressure"/>
+          <ref name="scalar_galerkin_projection_algorithm"/>
+          <ref name="darcy_impes_diagnostic_scalar_field"/>
+          <optional>
+            <ref name="darcy_impes_recalculation_options"/>
+          </optional>
         </element>
       </choice>
     </element>

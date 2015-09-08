@@ -42,6 +42,13 @@ module darcy_impes_leaching_types
      type(arrhenius_rate_constant_type):: ak
   end type leaching_arrhenius_reaction_type
   
+  type leaching_reaction_cap_type
+     logical :: have_cap= .false. !the cap used to limit the max value of the concentration, useful for the singular corner of heap
+     integer, dimension(:), allocatable :: field_index
+     integer, dimension(:), allocatable :: field_phase
+     real, dimension(:), allocatable  :: cap_val !the maximun value of the field
+  end type leaching_reaction_cap_type
+  
   type leaching_semi_empirical_model_type
      type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
      type(scalar_field), pointer :: ex_r => null() !the extraction rate
@@ -51,6 +58,7 @@ module darcy_impes_leaching_types
      real, dimension(:,:), pointer :: spline_coe !the cubic spline coefficient
      integer :: ndata !the number of the experiment data points used to do spline interpolation
      real, dimension(:), allocatable :: exp_ex, exp_exrk !experiment data
+     type(leaching_reaction_cap_type):: cap
   end type leaching_semi_empirical_model_type
   
   !jarocite precipitation
@@ -163,6 +171,12 @@ module darcy_impes_leaching_types
      type(solution_phase_heat_src_type), dimension(:), allocatable :: liquid_sr_src !solution phase reactions heat transfer sources
   end type leach_heat_transfer_model
 
+  type leach_wetting_efficiency_type
+     logical :: have_wet_eff = .false.
+     type(scalar_field), pointer :: rock_d  !diameter of rock particle
+     type(scalar_field), pointer :: wet_eff
+  end type leach_wetting_efficiency_type
+
   !options for leaching chemical model under darcy_impes_type                                                       
   type leach_chemical_type                                                                
     logical:: have_leach_chem_model = .false.  !if have leaching chemical model of this material phase
@@ -172,6 +186,7 @@ module darcy_impes_leaching_types
     type(leaching_mineral_dissolution_type):: dis 
     type(leaching_solution_phase_type) :: sol 
     type(leach_heat_transfer_model)::ht
+    type(leach_wetting_efficiency_type) :: wet_eff
   end type leach_chemical_type
  
   type leach_chemical_prog_sfield_subcycling
@@ -209,5 +224,6 @@ module darcy_impes_leaching_types
      logical :: if_src_linear= .false.
      type (leach_chemical_MIM_field_type) :: im_src !the chemical reaction src of the immobile part
      type (leach_chemical_MIM_field_type) :: mo_src !the chemical reaction src of the mobile part
-  end type leach_chemical_MIM_type
+  end type leach_chemical_MIM_type  
+  
 end module

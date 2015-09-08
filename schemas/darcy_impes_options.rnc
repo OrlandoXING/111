@@ -754,7 +754,9 @@ darcy_impes_other_phase_options =
       
       darcy_impes_fractional_flow_field,
 
-      darcy_impes_non_first_phase_temperature_field?, 
+      darcy_impes_non_first_phase_temperature_field?,
+      
+      darcy_impes_pmesh_porosity_viscosity_field?, 
       
       darcy_impes_generic_scalar_field*,
      
@@ -1232,6 +1234,16 @@ darcy_impes_relperm_correlation =
          comment,
          
          attribute name { "Corey2PhaseOpposite" },
+         
+         darcy_impes_residual_saturations?
+      }|
+      ## Use the opposite to Corey 2 phase correlation such that:
+      ## relperm_1 = (1 - sat_2**2) * (1 - sat_2)**2,
+      ## relperm_2 = sat_2**4
+      element correlation {
+         comment,
+         
+         attribute name { "Corey2PhaseOpposite_Correct" },
          
          darcy_impes_residual_saturations?
       }|
@@ -2613,6 +2625,13 @@ darcy_impes_prog_field_chemical_source_term =
                 comment
              }
               )?,
+           (
+          ##place a cap of the field
+          ##to limit the maximun value, ensure the stability of the sigular corner of the heap
+          element field_maximun_value{
+                real
+             }
+              )?,   
 		darcy_impes_leaching_solution_phase_prog_src?,
           darcy_impes_leaching_mineral_dissolution_prog_src?,
           (
@@ -2807,8 +2826,47 @@ darcy_impes_Leaching_chemical_model_options =
            leaching_chemical_dt_subcycle_options?,
            leaching_mineral_dissolution_options,
            leaching_solution_phase_options,
-           leaching_heat_transfer_model
+           leaching_heat_transfer_model,
+           leaching_liquid_solid_wetting_efficiency?
      }?
+    )
+
+
+leaching_liquid_solid_wetting_efficiency =
+    (
+      ##This is the solid wetting efficiency to correct the reaction kenitics
+      ##based on (Muthanna, et al, 1995)
+      element liquid_solid_wetting_efficiency {
+          element scalar_field {
+             attribute rank { "0" },
+             attribute name {"Rock_diameter"},
+             (
+		     element prescribed {                          
+			         mesh_choice_pressure,
+                        prescribed_scalar_field,
+                        field_output_options,
+                        darcy_impes_include_stat,
+                        darcy_impes_recalculation_options?
+                          }|
+               element diagnostic {
+                         mesh_choice_pressure,
+                         darcy_impes_diagnostic_scalar_field,
+                         darcy_impes_recalculation_options?
+                          }
+                         )
+          },
+          element scalar_field {
+               attribute rank { "0" },
+               attribute name {"Wetting_efficiency"},
+               element diagnostic {
+                                 mesh_choice_pressure,
+                                 darcy_impes_internal_algorithm,
+                                 darcy_impes_diagnostic_scalar_field,
+                                 darcy_impes_recalculation_options?
+                                 }
+          }
+      }
+    
     )
 
 leaching_chemical_dt_subcycle_options=
@@ -2866,14 +2924,36 @@ leaching_mineral_dissolution_options =
      ##this contains the semi-empirical model based on the experiment result
      ##for pytite and chalcopyrite dissolution
      ##and the elemental sulper dissolution
+     ##The internal algorithms currently available are for chalcopyrite leaching
+     
      element MineralDissolution{
              (
-              ##The internal algorithms currently available are for chalcopyrite leaching
+              
+              ##This is the semi-empirical model for chalcopyrite dissolution 
+              ##by ferric sulfate
+              ##the value of this reaction is based on unit: mole/m^3_heap
               element reaction{
                  attribute name {"CuFeS2_oxidation_aqueous_ferric_sulfate"},
-                 ##This is the semi-empirical model for chalcopyrite dissolution 
-                 ##by ferric sulfate
-                 ##the value of this reaction is based on unit: mole/m^3_heap
+                 ##when the reacting species reach the extreme values somewhere. stop the reaction at that place 
+                 ##fill in the same name of the field in the phase to limite reaction
+                 element Cap_field {
+                               
+                               attribute name { xsd:string },
+                               (
+                                 ##the phase number of the field,
+                                 ##e.g if the field is under Phase1 then enter 1
+                                 element  phase {
+                                             integer
+                                                          }
+                                                          ),
+                               (
+                                ##place a cap of the field
+                                ##to limit the maximun value, ensure the stability of the sigular corner of the heap
+                                element field_maximun_value{
+                                                            real
+                                                                     }
+                                )
+                 }*,
                  element scalar_field {
                                ##This is the concentraction change rate of CuFeS2
                                ##mole/s per m^3 of heap
@@ -2890,11 +2970,31 @@ leaching_mineral_dissolution_options =
                  rate_constant                
                  }|
               
+              ##This is the semi-empirical model for pyrite dissolution 
+              ##by ferric sulfate
+              ##the value of this reaction is based on unit: mole/m^3_heap
               element reaction{
+                 
                  attribute name {"FeS2_oxidation_aqueous_ferric_sulfate"},
-                 ##This is the semi-empirical model for pyrite dissolution 
-                 ##by ferric sulfate
-                 ##the value of this reaction is based on unit: mole/m^3_heap
+                 ##when the reacting species reach the extreme values somewhere. stop the reaction at that place
+                 ##fill in the same name of the field in the phase to limite reaction 
+                 element Cap_field {
+                               attribute name { xsd:string },
+                               (
+                                 ##the phase number of the field,
+                                 ##e.g if the field is under Phase1 then enter 1
+                                 element  phase {
+                                             integer
+                                                          }
+                                                          ),
+                               (
+                                ##place a cap of the field
+                                ##to limit the maximun value, ensure the stability of the sigular corner of the heap
+                                element field_maximun_value{
+                                                            real
+                                                                     }
+                                )
+                 }*,
                  element scalar_field {
                                ##This is the concentraction change rate of FeS2
                                ##mole/s per m^3 of heap
@@ -3325,6 +3425,48 @@ darcy_impes_non_first_phase_temperature_field =
          )    
       }    
    )
+   
+   darcy_impes_pmesh_porosity_viscosity_field =
+   (
+      element scalar_field {
+         attribute rank { "0" },
+         attribute name { "Porosity_pmesh" },
+         (
+            element prescribed {
+               mesh_choice_pressure,
+               prescribed_scalar_field,
+               field_output_options,
+               darcy_impes_include_stat
+               }|
+            element diagnostic {
+               mesh_choice_pressure,                   
+               scalar_galerkin_projection_algorithm,                    
+               darcy_impes_diagnostic_scalar_field, 
+               darcy_impes_recalculation_options?
+            }
+         )    
+      },
+      
+      element scalar_field {
+         attribute rank { "0" },
+         attribute name { "Viscosity_pmesh" },
+         (
+            element prescribed {
+               mesh_choice_pressure,
+               prescribed_scalar_field,
+               field_output_options,
+               darcy_impes_include_stat
+               }|
+            element diagnostic {
+               mesh_choice_pressure,                   
+               scalar_galerkin_projection_algorithm,                    
+               darcy_impes_diagnostic_scalar_field, 
+               darcy_impes_recalculation_options?
+            }
+         )    
+      }    
+   )
+   
 
  darcy_impes_leaching_mineral_experiment_field =
  (

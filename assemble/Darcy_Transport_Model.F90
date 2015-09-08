@@ -15,7 +15,9 @@ module darcy_transport_model
   use global_parameters, only: OPTION_PATH_LEN
   use vtk_cache_module, only:vtk_cache_finalise
   use fefields, only: compute_cv_mass
-
+  use sparsity_patterns
+  use solvers
+  
   use darcy_impes_assemble_type, only: darcy_impes_type
   use darcy_impes_leaching_types
 
@@ -27,7 +29,6 @@ module darcy_transport_model
        leaching_MIM_calculate_fields_and_ratio, &
        darcy_trans_MIM_prog_sfield_allocate_rhs_lhs, &
        darcy_trans_assemble_and_solve_immobile_sfield, &
-       darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh, &
        initialize_MIM_model,&       
        finalize_MIM_model
 
@@ -628,52 +629,6 @@ contains
 
    end subroutine darcy_trans_assemble_and_solve_immobile_sfield
 
-
-   subroutine darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh(field, projected_field, positions, ele)
-
-        type(scalar_field), intent(inout) :: field
-        type(scalar_field), intent(in) :: projected_field
-        type(vector_field), intent(in) :: positions
-        integer, intent(in) :: ele
-        type(element_type), pointer :: field_shape, proj_field_shape
-        real, dimension(ele_loc(field, ele)) :: little_rhs
-        real, dimension(ele_loc(field, ele), ele_loc(field, ele)) :: little_mass
-        real, dimension(ele_loc(field, ele), ele_loc(projected_field, ele)) :: little_mba
-        real, dimension(ele_loc(field, ele), ele_loc(projected_field, ele)) :: little_mba_int
-        real, dimension(ele_ngi(field, ele)) :: detwei
-        real, dimension(ele_loc(projected_field, ele)) :: proj_field_val 
-        
-        integer :: i, j, k
-
-
-          field_shape => ele_shape(field, ele)
-          proj_field_shape => ele_shape(projected_field, ele)
-
-          call transform_to_physical(positions, ele, detwei=detwei)
-
-          little_mass = shape_shape(field_shape, field_shape, detwei)
-
-          ! And compute the product of the basis functions
-          little_mba = 0
-          do i=1,ele_ngi(field, ele)
-           forall(j=1:ele_loc(field, ele), k=1:ele_loc(projected_field, ele))
-             little_mba_int(j, k) = field_shape%n(j, i) * proj_field_shape%n(k, i)
-           end forall
-           little_mba = little_mba + little_mba_int * detwei(i)
-          end do
-
-          proj_field_val = ele_val(projected_field, ele)
-      
-          little_rhs = matmul(little_mba, proj_field_val)
-        
-          call solve(little_mass, little_rhs)
-          call set(field, ele_nodes(field, ele), little_rhs)
-          nullify(field_shape, proj_field_shape)
-
-  end subroutine darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh
-
-
-      
   subroutine leaching_MIM_calculate_fields_and_ratio(di,p,f)
      !calculate the average concentration based on the mobile immboile concentration
      !calculate the weighting constant ratio of mobile and immobile concentration

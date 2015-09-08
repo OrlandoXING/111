@@ -123,6 +123,9 @@ module darcy_impes_assemble_type
       type(leach_chemical_prog_sfield_src) :: lc_src
       !for heat transfer src under temperature
       type(leach_prog_sfield_heat_transfer_src) ::lh_src
+      !for limite the field by a maximun value
+      logical::have_cap=.false.
+      real :: cap_val
       !***********LCai*******end***************
    end type darcy_impes_generic_prog_sfield_type
   
@@ -240,8 +243,10 @@ module darcy_impes_assemble_type
       type(scalar_field), pointer  :: sat_ADE !saturation used for adv-diff equation for solving prog sfield
       type(scalar_field), pointer  :: old_sat_ADE 
 
-      type(scalar_field) :: porosity_pmesh ! the porosity based on pressure mesh
-      type(scalar_field) :: old_porosity_pmesh
+      type(scalar_field), pointer  :: porosity_pmesh ! the porosity based on pressure mesh
+      type(scalar_field), pointer  :: old_porosity_pmesh
+      type(scalar_field), pointer  :: lviscosity_pmesh ! the liquid viscosity based on pressure mesh
+      type(scalar_field), pointer  :: old_lviscosity_pmesh ! the liquid viscosity based on pressure mesh
       type(leach_chemical_prog_sfield_subcycling) :: lcsub !leaching subcycling term
      
       !***********Finish******************LCai **********************************************

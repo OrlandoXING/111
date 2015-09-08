@@ -93,14 +93,11 @@ module darcy_impes_assemble_module
              darcy_impes_assemble_and_solve_phase_pressures, &
              darcy_impes_calculate_divergence_total_darcy_velocity, &
              darcy_impes_calculate_inverse_cv_sa, &
-             darcy_trans_MIM_assemble_and_solve_mobile_saturation, &  !**LCai 27 July 2013
-             darcy_trans_assemble_galerkin_projection_elemesh_to_pmesh, & ! ** LCaDai 22 Aug 2013
              calculate_leach_prog_sfield_subcycle_terms, &
              leaching_prog_sfield_subcycle_initialize, &
              leaching_prog_sfield_subcycle_finalize, &
              darcy_trans_leaching_sub_copy_to_old, &
              darcy_trans_leaching_sub_copy_to_iterated, &
-             darcy_trans_leaching_copy_to_old, &
              darcy_trans_leaching_subcycling_dynamic_timestep
    
    ! Parameters defining Darcy IMPES cached options
@@ -110,7 +107,8 @@ module darcy_impes_assemble_module
                                  RELPERM_CORRELATION_MINERAL               = 4, &
                                  RELPERM_CORRELATION_VANGENUCHTEN          = 5, &
                                  RELPERM_CORRELATION_JACKSON2PHASE         = 6, &
-                                 RELPERM_CORRELATION_JACKSON2PHASEOPPOSITE = 7
+                                 RELPERM_CORRELATION_JACKSON2PHASEOPPOSITE = 7, &
+                                 RELPERM_CORRELATION_COREY2PHASEOPPOSITE_Correct= 8
    
    ! Parameters defining Darcy IMPES CV face value schemes
    integer, parameter, public :: DARCY_IMPES_CV_FACEVALUE_NONE                        = 0, &
@@ -2307,7 +2305,7 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
       type(darcy_impes_type), intent(inout) :: di
       
       ! local variables
-      integer :: f, p
+      integer :: f, p, node
       
       ewrite(1,*) 'Assemble and solve generic prognostic scalar fields'
       
@@ -2316,7 +2314,17 @@ dot_product((grad_pressure_face_quad(:,ggi) - di%cached_face_value%den(ggi,vele,
          p = di%generic_prog_sfield(f)%phase
          
          call darcy_impes_assemble_and_solve_generic_prog_sfield(di, f, p)
-                  
+         !---------lcai---------check the cap set to limit the maximun value of the field
+         if (di%generic_prog_sfield(f)%have_cap) then
+
+            do node = 1, di%number_pmesh_node
+               if (di%generic_prog_sfield(f)%sfield%val(node)>=di%generic_prog_sfield(f)%cap_val) then
+                  di%generic_prog_sfield(f)%sfield%val(node)=di%generic_prog_sfield(f)%cap_val
+               end if
+               
+            end  do
+         end if
+                                 
       end do sfield_loop
 
       ewrite(1,*) 'Finished assemble and solve generic prognostic scalar fields'
@@ -4057,7 +4065,26 @@ visc_ele_bdy(1)
 
       case (RELPERM_CORRELATION_COREY2PHASEOPPOSITE)
 
-         sat_minus_res_sat = sat_val_all_phases(2) - relperm_corr_residual_sats(2)
+         sat_minus_res_sat = (sat_val_all_phases(2) - relperm_corr_residual_sats(2))
+
+         if (p == 1) then
+
+            relperm_val = (1.0 - sat_minus_res_sat ** 2) * (1.0 - sat_minus_res_sat) ** 2
+
+         else if (p == 2) then
+
+            relperm_val = sat_minus_res_sat ** 4
+
+         else 
+
+            ! This has already been option checked so should not happen
+            FLAbort('Trying to use Corey2PhaseOpposite relative permeabiltiy correlation for simulation with more than 2 phases')
+
+         end if
+         
+      case (RELPERM_CORRELATION_COREY2PHASEOPPOSITE_Correct)
+
+         sat_minus_res_sat = (sat_val_all_phases(2) - relperm_corr_residual_sats(2))/(1.0-relperm_corr_residual_sats(2))
 
          if (p == 1) then
 
@@ -5836,7 +5863,7 @@ visc_ele_bdy(1)
 subroutine darcy_trans_leaching_solve_generic_prog_sfields_sub(di)
   type(darcy_impes_type), intent(inout) :: di
   integer :: isub !for subcycling
-  integer :: f,p
+  integer :: f,p, node
   call calculate_leach_prog_sfield_subcycle_terms(di)
   sub_loop: do isub=1,di%lcsub%number_subcycle
       call darcy_trans_leaching_sub_copy_to_iterated(di)
@@ -5855,7 +5882,16 @@ subroutine darcy_trans_leaching_solve_generic_prog_sfields_sub(di)
     
           p = di%generic_prog_sfield(f)%phase
           call darcy_trans_leaching_solve_generic_prog_single_sfield_sub(di,f,p,isub)
+          !---------lcai---------check the cap set to limit the maximun value of the field
+          if (di%generic_prog_sfield(f)%have_cap) then
+            do node = 1, di%number_pmesh_node
+               if (di%generic_prog_sfield(f)%sfield%val(node)>=di%generic_prog_sfield(f)%cap_val) then
+                  di%generic_prog_sfield(f)%sfield%val(node)=di%generic_prog_sfield(f)%cap_val
 
+               end if
+               
+            end  do
+          end if
       end do sfield_loop
       !call darcy_trans_leaching_sub_copy_to_iterated(di)
   end do sub_loop
@@ -6563,11 +6599,6 @@ dot_product((grad_pressure_face_quad_bdy(:,ggi) - di%cached_face_value%den_bdy(g
       deallocate(p_nodes_bdy)      
 
 end subroutine leach_prog_sfield_subcycle_adv_diff
-
-subroutine darcy_trans_leaching_copy_to_old(di)
-    type(darcy_impes_type), intent(inout) :: di
-    call set(di%old_porosity_pmesh, di%porosity_pmesh)
-end subroutine darcy_trans_leaching_copy_to_old
 
 subroutine darcy_trans_leaching_sub_copy_to_old(di)
     type(darcy_impes_type), intent(inout) :: di

@@ -1767,7 +1767,20 @@ contains
            call insert(state, field, field%name)
            call deallocate(field)
            nullify(mesh)
-         end if
+        end if
+
+        !for liquid solid wetting efficiency
+        if(have_option('/Leaching_chemical_model/liquid_solid_wetting_efficiency')) then
+           path=trim('/Leaching_chemical_model/liquid_solid_wetting_efficiency')
+           nfields=option_count(trim(path)//"/scalar_field")
+           do j=0, nfields-1
+              path2=trim(path)//"/scalar_field["//int2str(j)//"]"
+              call get_option(trim(path2)//"/name", field_name)
+              path2=trim(path)//"/scalar_field::"//trim(field_name)
+              call allocate_and_insert_scalar_field(trim(path2), state, field_name=field_name, &
+                             dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+           end do
+        end if        
 
      end subroutine allocate_and_insert_leaching_model
            
