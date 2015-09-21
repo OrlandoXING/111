@@ -238,7 +238,7 @@ module darcy_impes_assemble_type
       ! *** Data associate with the relperm correlation options ***
       type(darcy_impes_relperm_corr_options_type) :: relperm_corr_options
       
-      !***********************************LCai 23 & 27 July & 22 Aug 2013***********************
+      !***********************************LCai***********************************************
       type (darcy_impes_MIM_options_type) :: MIM_options
       type(scalar_field), pointer  :: sat_ADE !saturation used for adv-diff equation for solving prog sfield
       type(scalar_field), pointer  :: old_sat_ADE 
@@ -248,6 +248,7 @@ module darcy_impes_assemble_type
       type(scalar_field), pointer  :: lviscosity_pmesh ! the liquid viscosity based on pressure mesh
       type(scalar_field), pointer  :: old_lviscosity_pmesh ! the liquid viscosity based on pressure mesh
       type(leach_chemical_prog_sfield_subcycling) :: lcsub !leaching subcycling term
+      type(heap_property_type):: heap
      
       !***********Finish******************LCai **********************************************
       

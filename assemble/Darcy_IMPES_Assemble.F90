@@ -1945,7 +1945,7 @@ module darcy_impes_assemble_module
       
       !******************** 27 July 2013 LCai **********************!
       !Check wether there is MIM model, if true calculate the Mobile saturation
-      if (di%MIM_options%have_MIM_phase) call darcy_trans_MIM_assemble_and_solve_mobile_saturation(di)
+      if (di%MIM_options%have_MIM_phase) call darcy_trans_solve_MIM_saturations_and_mass_transfer_coefficient(di)
       	
       !******Finish********* 27 July 2013 LCai **********************!
       

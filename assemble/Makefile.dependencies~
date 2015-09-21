@@ -208,6 +208,7 @@ Darcy_IMPES_Leaching_Chemical_Model.o \
    ../include/darcy_impes_leaching_chemical_model.mod: \
    Darcy_IMPES_Leaching_Chemical_Model.F90 \
    ../include/darcy_impes_assemble_type.mod \
+
    ../include/darcy_impes_leaching_types.mod \
    ../include/darcy_transport_model.mod ../include/data_structures.mod \
    ../include/fdebug.h ../include/fefields.mod ../include/field_options.mod \

@@ -1890,6 +1890,7 @@ i.e. if the name of this scalar field is 'cd', then the name will be changed to 
           <optional>
             <ref name="darcy_impes_recalculation_options"/>
           </optional>
+          <ref name="darcy_impes_include_stat"/>
         </element>
         <element name="scalar_field">
           <a:documentation>this is the averaged mass between mobile and immobile field</a:documentation>
@@ -1906,6 +1907,7 @@ i.e. if the name of this scalar field is 'cd', then the name will be changed to 
             <optional>
               <ref name="darcy_impes_recalculation_options"/>
             </optional>
+            <ref name="darcy_impes_include_stat"/>
           </element>
         </element>
         <element name="scalar_field">
@@ -1923,6 +1925,7 @@ i.e. if the name of this scalar field is 'cd', then the name will be changed to 
             <optional>
               <ref name="darcy_impes_recalculation_options"/>
             </optional>
+            <ref name="darcy_impes_include_stat"/>
           </element>
         </element>
         <element name="scalar_field">
@@ -1940,6 +1943,7 @@ i.e. if the name of this scalar field is 'cd', then the name will be changed to 
             <optional>
               <ref name="darcy_impes_recalculation_options"/>
             </optional>
+            <ref name="darcy_impes_include_stat"/>
           </element>
         </element>
       </element>
@@ -2284,6 +2288,36 @@ the first material_phase state then aliased in all others.</a:documentation>
         </attribute>
         <ref name="darcy_impes_scalar_field_prescribed_or_python_diagnostic_element_wise_mesh"/>
       </element>
+      <optional>
+        <element name="scalar_field">
+          <a:documentation>specify the rock diameters inside the heap,
+which is used to calculate the wetting efficienct and immobile saturation and mass transfer coefficient diagnosticlly         </a:documentation>
+          <attribute name="rank">
+            <value>0</value>
+          </attribute>
+          <attribute name="name">
+            <value>Rock_diameter</value>
+          </attribute>
+          <choice>
+            <element name="prescribed">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="prescribed_scalar_field"/>
+              <ref name="field_output_options"/>
+              <ref name="darcy_impes_include_stat"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+            </element>
+            <element name="diagnostic">
+              <ref name="mesh_choice_pressure"/>
+              <ref name="darcy_impes_diagnostic_scalar_field"/>
+              <optional>
+                <ref name="darcy_impes_recalculation_options"/>
+              </optional>
+            </element>
+          </choice>
+        </element>
+      </optional>
     </element>
     <optional>
       <ref name="darcy_impes_dual_porous_media_model"/>
@@ -2667,7 +2701,7 @@ Please turn on the corresponding immobile field under the mobile prognostic fiel
           </element>
           <element name="diagnostic">
             <ref name="mesh_choice_pressure"/>
-            <ref name="scalar_diagnostic_algorithms"/>
+            <ref name="darcy_impes_internal_algorithm"/>
             <ref name="darcy_impes_diagnostic_scalar_field"/>
             <optional>
               <ref name="darcy_impes_recalculation_options"/>
@@ -2713,7 +2747,7 @@ Please turn on the corresponding immobile field under the mobile prognostic fiel
             </element>
             <element name="diagnostic">
               <ref name="mesh_choice_pressure"/>
-              <ref name="scalar_diagnostic_algorithms"/>
+              <ref name="darcy_impes_internal_algorithm"/>
               <ref name="darcy_impes_diagnostic_scalar_field"/>
               <optional>
                 <ref name="darcy_impes_recalculation_options"/>
@@ -2804,8 +2838,6 @@ while the chemical source term under the prognostic field is mole per total volu
               <optional>
                 <ref name="darcy_impes_recalculation_options"/>
               </optional>
-              <ref name="field_output_options"/>
-              <ref name="darcy_impes_include_stat"/>
             </element>
           </element>
           <element name="scalar_field">
@@ -2824,8 +2856,6 @@ mole per volume of immobile solution</a:documentation>
               <optional>
                 <ref name="darcy_impes_recalculation_options"/>
               </optional>
-              <ref name="field_output_options"/>
-              <ref name="darcy_impes_include_stat"/>
             </element>
           </element>
         </element>
@@ -3038,32 +3068,6 @@ the value of this source term is based on unit: mole/m^3_heap</a:documentation>
     <element name="liquid_solid_wetting_efficiency">
       <a:documentation>This is the solid wetting efficiency to correct the reaction kenitics
 based on (Muthanna, et al, 1995)</a:documentation>
-      <element name="scalar_field">
-        <attribute name="rank">
-          <value>0</value>
-        </attribute>
-        <attribute name="name">
-          <value>Rock_diameter</value>
-        </attribute>
-        <choice>
-          <element name="prescribed">
-            <ref name="mesh_choice_pressure"/>
-            <ref name="prescribed_scalar_field"/>
-            <ref name="field_output_options"/>
-            <ref name="darcy_impes_include_stat"/>
-            <optional>
-              <ref name="darcy_impes_recalculation_options"/>
-            </optional>
-          </element>
-          <element name="diagnostic">
-            <ref name="mesh_choice_pressure"/>
-            <ref name="darcy_impes_diagnostic_scalar_field"/>
-            <optional>
-              <ref name="darcy_impes_recalculation_options"/>
-            </optional>
-          </element>
-        </choice>
-      </element>
       <element name="scalar_field">
         <attribute name="rank">
           <value>0</value>
@@ -4090,8 +4094,6 @@ while the chemical source term under the prognostic field is mole per total volu
               <optional>
                 <ref name="darcy_impes_recalculation_options"/>
               </optional>
-              <ref name="field_output_options"/>
-              <ref name="darcy_impes_include_stat"/>
             </element>
           </element>
           <element name="scalar_field">
@@ -4110,8 +4112,6 @@ mole per volume of immobile solution</a:documentation>
               <optional>
                 <ref name="darcy_impes_recalculation_options"/>
               </optional>
-              <ref name="field_output_options"/>
-              <ref name="darcy_impes_include_stat"/>
             </element>
           </element>
         </element>

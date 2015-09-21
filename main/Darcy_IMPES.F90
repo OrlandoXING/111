@@ -569,6 +569,8 @@ program Darcy_IMPES
    end if
 
    call finalize_MIM_model(di)
+
+   call finalize_heap_property(di)
    !**************************fin**************************************
 
 
@@ -1460,7 +1462,8 @@ contains
            end if
 
       end if
-        
+
+      call initialize_heap_property(di)
       !********finish*******leaching chemistry model**************!
 
       ! If the first phase saturation is diagnostic then calculate it
@@ -1482,10 +1485,6 @@ contains
       ! Calculate the latest CV mass on the pressure mesh with porosity
       call compute_cv_mass(di%positions, di%cv_mass_pressure_mesh_with_porosity, di%porosity)
       
-      !*********************26 July 2013 LCai*****************************!
-      ! calculate the Mobile saturations if MIM is used
-      if (di%MIM_options%have_MIM_phase) call darcy_trans_MIM_assemble_and_solve_mobile_saturation(di)
-      !***********end*******lcai**************************** 
       
       ! Calculate the non first phase pressure's, needs to be after the python fields
       call darcy_impes_calculate_non_first_phase_pressures(di)       
@@ -1514,6 +1513,10 @@ contains
       call copy_to_stored_values(di%state,"Iterated")
       call relax_to_nonlinear(di%state)
       
+      !*********************26 July 2013 LCai*****************************!
+      ! calculate the Mobile saturations if MIM is used
+      if (di%MIM_options%have_MIM_phase) call darcy_trans_solve_MIM_saturations_and_mass_transfer_coefficient(di)
+      !***********end*******lcai****************************
       
       call leaching_prog_sfield_subcycle_initialize(di)
       if (di%lcsub%have_leach_subcycle) then 

@@ -720,7 +720,6 @@ module darcy_impes_leaching_chemical_model
         !-------------------solid liquid wetting efficiency------------------------------
         if (have_option(trim('/Leaching_chemical_model/liquid_solid_wetting_efficiency'))) then
            di%lc%wet_eff%have_wet_eff =.true.
-           di%lc%wet_eff%rock_d => extract_scalar_field(di%state(1), trim('Rock_diameter'))
            di%lc%wet_eff%wet_eff => extract_scalar_field(di%state(1), trim('Wetting_efficiency'))
         end if
 
@@ -728,7 +727,7 @@ module darcy_impes_leaching_chemical_model
   end subroutine initialize_leaching_chemical_model
 
   !--------------------------------------------------------------------------------------------------------
-  subroutine finalize_leaching_chemical_model(di) 
+  subroutine finalize_leaching_chemical_model(di)  
      
      !finalize terms from leaching_chemical_model
 
@@ -743,7 +742,6 @@ module darcy_impes_leaching_chemical_model
 
      if (di%lc%wet_eff%have_wet_eff) then
         di%lc%wet_eff%have_wet_eff =.false.
-        nullify(di%lc%wet_eff%rock_d)
         nullify(di%lc%wet_eff%wet_eff)
      end if
      
@@ -2131,7 +2129,7 @@ module darcy_impes_leaching_chemical_model
       poro=node_val(di%porosity_pmesh,node)
 
       !rock particle diameter
-      d=node_val(di%lc%wet_eff%rock_d,node)
+      d=node_val(di%heap%rock_d,node)
 
       !Galileo number
       Ga=((d*poro/(1.0-poro))**3.0)*((rho/mu)**2.0)*g

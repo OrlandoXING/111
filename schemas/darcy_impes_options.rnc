@@ -1823,7 +1823,8 @@ darcy_MIM_generic_scalar_field_immobile_src =
 			    darcy_impes_internal_algorithm,
 			    initial_condition_scalar,
 			    darcy_impes_diagnostic_scalar_field,
-			    darcy_impes_recalculation_options?
+			    darcy_impes_recalculation_options?,
+			    darcy_impes_include_stat
 			    }
                     ),
                (
@@ -1835,7 +1836,8 @@ darcy_MIM_generic_scalar_field_immobile_src =
                    mesh_choice_pressure,
 			    darcy_impes_internal_algorithm,
 			    darcy_impes_diagnostic_scalar_field,
-			    darcy_impes_recalculation_options?
+			    darcy_impes_recalculation_options?,
+			    darcy_impes_include_stat
                      }
                     }
 			    ),
@@ -1848,7 +1850,8 @@ darcy_MIM_generic_scalar_field_immobile_src =
                        mesh_choice_pressure,
 			        darcy_impes_internal_algorithm,
 			        darcy_impes_diagnostic_scalar_field,
-			        darcy_impes_recalculation_options?
+			        darcy_impes_recalculation_options?,
+			        darcy_impes_include_stat
 			        }
 			       }
 			      ),
@@ -1861,7 +1864,8 @@ darcy_MIM_generic_scalar_field_immobile_src =
                        mesh_choice_pressure,
 			        darcy_impes_internal_algorithm,
 			        darcy_impes_diagnostic_scalar_field,
-			        darcy_impes_recalculation_options?
+			        darcy_impes_recalculation_options?,
+			        darcy_impes_include_stat
 			       }
 			      }
 			     ) 
@@ -2179,7 +2183,29 @@ darcy_impes_porous_media_model =
                attribute name { "AbsolutePermeability" },
                darcy_impes_scalar_field_prescribed_or_python_diagnostic_element_wise_mesh
             }
-         )
+         ),
+         
+         (##specify the rock diameters inside the heap,
+          ## which is used to calculate the wetting efficienct and immobile saturation and mass transfer coefficient diagnosticlly         
+            element scalar_field {
+                attribute rank { "0" },
+                attribute name {"Rock_diameter"},
+                (
+		        element prescribed {                          
+			            mesh_choice_pressure,
+                           prescribed_scalar_field,
+                           field_output_options,
+                           darcy_impes_include_stat,
+                           darcy_impes_recalculation_options?
+                             }|
+                  element diagnostic {
+                            mesh_choice_pressure,
+                            darcy_impes_diagnostic_scalar_field,
+                            darcy_impes_recalculation_options?
+                             }
+                            )
+             }?
+          )
       },   
       darcy_impes_dual_porous_media_model?   
 
@@ -2526,7 +2552,7 @@ scalar_convergence_options =
 			}|
 		     element diagnostic {
 	                mesh_choice_pressure,
-			scalar_diagnostic_algorithms,
+			darcy_impes_internal_algorithm,
 			darcy_impes_diagnostic_scalar_field,
 			darcy_impes_recalculation_options?
 			}
@@ -2557,7 +2583,7 @@ scalar_convergence_options =
                           }|
                       element diagnostic {
                          mesh_choice_pressure,
-                         scalar_diagnostic_algorithms,
+                         darcy_impes_internal_algorithm,
                          darcy_impes_diagnostic_scalar_field,
                          darcy_impes_recalculation_options?
                           }
@@ -2647,9 +2673,7 @@ darcy_impes_prog_field_chemical_source_term =
                                    mesh_choice_pressure,
 			                    darcy_impes_internal_algorithm,
 			                    darcy_impes_diagnostic_scalar_field,
-			                    darcy_impes_recalculation_options?,
-			                    field_output_options,
-                                   darcy_impes_include_stat
+			                    darcy_impes_recalculation_options?
 			                }
                            },
                          ##This is the chemical source term of the contribution from the immobile part
@@ -2661,9 +2685,7 @@ darcy_impes_prog_field_chemical_source_term =
                                    mesh_choice_pressure,
 			                    darcy_impes_internal_algorithm,
 			                    darcy_impes_diagnostic_scalar_field,
-			                    darcy_impes_recalculation_options?,
-			                    field_output_options,
-                                   darcy_impes_include_stat
+			                    darcy_impes_recalculation_options?
 			                }
                            }
                            
@@ -2837,24 +2859,7 @@ leaching_liquid_solid_wetting_efficiency =
       ##This is the solid wetting efficiency to correct the reaction kenitics
       ##based on (Muthanna, et al, 1995)
       element liquid_solid_wetting_efficiency {
-          element scalar_field {
-             attribute rank { "0" },
-             attribute name {"Rock_diameter"},
-             (
-		     element prescribed {                          
-			         mesh_choice_pressure,
-                        prescribed_scalar_field,
-                        field_output_options,
-                        darcy_impes_include_stat,
-                        darcy_impes_recalculation_options?
-                          }|
-               element diagnostic {
-                         mesh_choice_pressure,
-                         darcy_impes_diagnostic_scalar_field,
-                         darcy_impes_recalculation_options?
-                          }
-                         )
-          },
+          
           element scalar_field {
                attribute rank { "0" },
                attribute name {"Wetting_efficiency"},
@@ -3766,9 +3771,7 @@ darcy_impes_non_first_phase_temperature_field =
                                    mesh_choice_pressure,
 			                    darcy_impes_internal_algorithm,
 			                    darcy_impes_diagnostic_scalar_field,
-			                    darcy_impes_recalculation_options?,
-			                    field_output_options,
-                                   darcy_impes_include_stat
+			                    darcy_impes_recalculation_options?
 			                }
                            },
                          ##This is the chemical source term of the contribution from the immobile part
@@ -3780,9 +3783,7 @@ darcy_impes_non_first_phase_temperature_field =
                                    mesh_choice_pressure,
 			                    darcy_impes_internal_algorithm,
 			                    darcy_impes_diagnostic_scalar_field,
-			                    darcy_impes_recalculation_options?,
-			                    field_output_options,
-                                   darcy_impes_include_stat
+			                    darcy_impes_recalculation_options?
 			                }
                            }
                            

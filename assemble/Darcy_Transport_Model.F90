@@ -25,15 +25,14 @@ module darcy_transport_model
   implicit none
   private
   
-  public :: darcy_trans_MIM_assemble_and_solve_mobile_saturation, &
+  public :: darcy_trans_solve_MIM_saturations_and_mass_transfer_coefficient, &
        leaching_MIM_calculate_fields_and_ratio, &
        darcy_trans_MIM_prog_sfield_allocate_rhs_lhs, &
        darcy_trans_assemble_and_solve_immobile_sfield, &
        initialize_MIM_model,&       
-       finalize_MIM_model
-
-
-
+       finalize_MIM_model,&
+       finalize_heap_property,&
+       initialize_heap_property
 
 contains
 
@@ -41,7 +40,7 @@ contains
       type(darcy_impes_type), intent(inout) :: di
 
       integer :: p, stat, f_count, f
-      character(len=OPTION_PATH_LEN) :: tmp_char_option, tmp_char_option1
+      character(len=OPTION_PATH_LEN) :: tmp_char_option, tmp_char_option1, lalgorithm, path
       type(vector_field), pointer :: position =>null()
 
       ! Allocate the MIM model
@@ -102,7 +101,42 @@ contains
             di%MIM_options%mass_trans_coef(p)%ptr  => di%constant_zero_sfield_pmesh
             di%MIM_options%old_mass_trans_coef(p)%ptr  => di%constant_zero_sfield_pmesh  
          end if
-       
+
+         path=trim('/material_phase['//int2str(p-1)//']'//'/MobileImmobileModel/scalar_field')
+         if (have_option(trim(path)//'::ImmobileSaturation/diagnostic')) then
+            call get_option(trim(path)//'::ImmobileSaturation/diagnostic/algorithm/name', lalgorithm, default = "Internal")
+            
+            select case(trim(lalgorithm))
+               case("Internal")
+                  di%MIM_options%Lima_immobile_sat=.true.
+                  
+               case("scalar_python_diagnostic")
+                  di%MIM_options%Lima_immobile_sat=.false.
+
+               case default
+                  FLAbort("The internal algorithm is now the only diagnostic algorithm available to immobile saturation")
+
+            end select
+                                
+         end if
+         
+         if (have_option(trim(path)//'::MassTransferCoefficient/diagnostic')) then
+            call get_option(trim(path)//'::MassTransferCoefficient/diagnostic/algorithm/name', lalgorithm, default = "Internal")
+            
+            select case(trim(lalgorithm))
+               case("Internal")
+                  di%MIM_options%Lima_mass_trans=.true.
+                  
+               case("scalar_python_diagnostic")
+                  di%MIM_options%Lima_mass_trans=.false.
+
+               case default
+                  FLAbort("The internal algorithm is now the only diagnostic algorithm available to the mass transfer coefficient")
+
+           end select
+                                
+         end if
+         
       end do
 
       !the flag to check wether the MIM exist in at least one phase
@@ -263,6 +297,29 @@ contains
       
  end subroutine initialize_MIM_model
 
+ subroutine initialize_heap_property(di)
+   type(darcy_impes_type), intent(inout) :: di
+   integer :: stat
+   
+   if (have_option(trim('/Leaching_chemical_model/liquid_solid_wetting_efficiency')) .or. di%MIM_options%Lima_immobile_sat .or. di%MIM_options%Lima_mass_trans ) then
+      di%heap%rock_d=>extract_scalar_field(di%state(1), trim('Rock_diameter'), stat=stat)
+      if (.not. stat==0) then
+         FLAbort('please specify the rock diameter under porous media if you want to calculate the wetting efficiency or immobile saturation and mass transfer coeffcient diagnostically')         
+      end if
+   end if
+   
+ end subroutine initialize_heap_property
+ 
+
+ subroutine finalize_heap_property(di)
+   type(darcy_impes_type), intent(inout) :: di
+
+   if (associated(di%heap%rock_d)) then
+     nullify(di%heap%rock_d)
+   end if
+      
+ end subroutine finalize_heap_property
+ 
  subroutine finalize_MIM_model(di)
 
    type(darcy_impes_type), intent(inout) :: di
@@ -280,8 +337,10 @@ contains
       nullify(di%MIM_options%old_mass_trans_coef(p)%ptr)
       di%MIM_options%have_MIM(p)=.false.
    end do
-
+   
    ! Deallocate the MIM model
+   di%MIM_options%Lima_immobile_sat=.false.
+   di%MIM_options%Lima_mass_trans=.false.
    di%MIM_options%have_mass_trans_coef = .false.
    di%MIM_options%have_MIM = .false.
    di%MIM_options%have_MIM_phase = .false.
@@ -316,26 +375,61 @@ contains
   
    
  end subroutine finalize_MIM_model
- 
+
 
  !Slove the mobile saturation if MIM exist
- subroutine darcy_trans_MIM_assemble_and_solve_mobile_saturation(di)
+ subroutine darcy_trans_solve_MIM_saturations_and_mass_transfer_coefficient(di)
 
         type(darcy_impes_type), intent(inout) :: di
-        integer :: i
+        integer :: i,node
         type(scalar_field), pointer :: total_sat => null()  !total saturation 
         type(scalar_field), pointer :: immobile_sat  => null()  ! immobile saturation
         type(scalar_field)  :: mobile_sat   !mobile saturation
-
-        call allocate(mobile_sat, di%pressure_mesh)
+        real:: Re,u,mu,rho,g,d,alpha
         
+        call allocate(mobile_sat, di%pressure_mesh)
+     
         do i= 2, di%number_phase
 
           total_sat      => di%saturation(i)%ptr
           immobile_sat   => di%MIM_options%immobile_saturation(i)%ptr
 
           if (di%MIM_options%have_MIM(i)) then
-             ewrite(1, *) "calculate the mobile saturation of phase: ", i
+
+             if (di%MIM_options%Lima_immobile_sat .or. di%MIM_options%Lima_mass_trans) then
+                do node=1,di%number_pmesh_node
+                   !the velocity magnitude of darcy flux                   
+                   u=norm2(node_val(di%darcy_velocity(2)%ptr,node))
+                   !the gravity magnitude
+                   g=di%gravity_magnitude
+                   if (g<=1.0e-10) then
+                      g=9.8                     
+                   end if
+                   !the liquid viscosity
+                   mu=node_val(di%lviscosity_pmesh,node)
+                   !liquid density
+                   rho=node_val(di%density(2)%ptr,node)
+                   !rock particle diameter
+                   d=node_val(di%heap%rock_d,node)
+                   !Reynolds number
+                   Re=u*rho*d/mu
+
+                   if (di%MIM_options%Lima_mass_trans) then
+                      !use the emperical correlation from Lima,2005 to calculate mass transfer coefficient 
+                      di%MIM_options%mass_trans_coef(i)%ptr%val(node)=1.59*(Re**0.578)/3600.0
+                   end if
+
+                   if (di%MIM_options%Lima_immobile_sat) then
+                      !use the emperical correlation from Lima,2005 to calculate MIM saturations
+                      !where alpha=Sat_d/Sat_s, (1/alpha=0.173Re^-0.286 nfrom Lima, 2005)
+                      alpha=5.78*(Re**0.286)
+                      immobile_sat%val(node)=total_sat%val(node)/(1.0+alpha)
+                   end if
+                                   
+                end do              
+             end if 
+             
+             
              call set(mobile_sat, total_sat)
              call addto(mobile_sat, immobile_sat, scale=-1.0)
              call set(di%MIM_options%mobile_saturation(i)%ptr, mobile_sat)
@@ -347,7 +441,8 @@ contains
         
         call deallocate(mobile_sat)
 
-  end subroutine darcy_trans_MIM_assemble_and_solve_mobile_saturation
+  end subroutine darcy_trans_solve_MIM_saturations_and_mass_transfer_coefficient
+      
 
 
   subroutine darcy_trans_MIM_prog_sfield_allocate_rhs_lhs(di,p,f,shared_rhs, shared_lhs,isub)

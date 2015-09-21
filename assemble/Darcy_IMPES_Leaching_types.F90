@@ -173,7 +173,6 @@ module darcy_impes_leaching_types
 
   type leach_wetting_efficiency_type
      logical :: have_wet_eff = .false.
-     type(scalar_field), pointer :: rock_d  !diameter of rock particle
      type(scalar_field), pointer :: wet_eff
   end type leach_wetting_efficiency_type
 
