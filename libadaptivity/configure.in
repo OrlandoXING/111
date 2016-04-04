@@ -200,6 +200,9 @@ if test "x$enable_vtk" != "xno" ; then
                    vtk_version=$this_vtk_version
                    vtk_include_dir=$i
                    vtk_version_file="vtkVersionMacros.h"
+		   vtk_major_version=$this_vtk_version
+		   vtk_minor_version=$(grep VTK_MINOR_VERSION $i/vtkVersionMacros.h | sed 's/#define VTK_MINOR_VERSION //')
+		   vtk_full_version=$vtk_major_version.$vtk_minor_version
                 fi
             # VTK 5 has a configure file that defined the macros
             elif test -r $i/vtkConfigure.h; then
@@ -273,11 +276,11 @@ if test "x$enable_vtk" != "xno" ; then
             if test -d /usr/lib64/vtk ; then
                 LIBS="$LIBS -L/usr/lib64/vtk"
             fi
-            AC_CHECK_LIB(vtkCommonCore, main, [], 
+            AC_CHECK_LIB(vtkCommonCore-${vtk_full_version}, main, [], 
                 [if test "x$VTK_LIBS" != "x" ; then
                     LIBS="$LIBS -L$VTK_LIBS"
-                    unset ac_cv_lib_vtkCommonCore_main
-                    AC_CHECK_LIB(vtkCommonCore, main, [], 
+                    unset ac_cv_lib_vtkCommonCore-${vtk_full_version}_main
+                    AC_CHECK_LIB(vtkCommonCore-$vtk_full_version, main, [], 
                        [
                           AC_MSG_ERROR([Cannot find vtk installation.])
                           exit -1
@@ -287,10 +290,10 @@ if test "x$enable_vtk" != "xno" ; then
                     exit -1
                  fi
                 ])
-            AC_CHECK_LIB(vtkIOXML, main)
-            AC_CHECK_LIB(vtkIOParallel, main)
-            AC_CHECK_LIB(vtkIOCore, main)
-            AC_CHECK_LIB(vtkCommonDataModel, main)
+            AC_CHECK_LIB(vtkIOXML-$vtk_full_version, main)
+            AC_CHECK_LIB(vtkIOParallel-$vtk_full_version, main)
+            AC_CHECK_LIB(vtkIOCore-$vtk_full_version, main)
+            AC_CHECK_LIB(vtkCommonDataModel-$vtk_full_version, main)
         fi
     fi
 fi
