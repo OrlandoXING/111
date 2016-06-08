@@ -174,7 +174,6 @@ contains
     type(vector_field), intent(out) :: stripped_positions
     type(tensor_field), intent(out):: stripped_metric
 
-    type(halo_type), dimension(:), pointer :: save_halos
     type(mesh_type):: stripped_mesh, mesh
     integer, dimension(:), pointer :: node_list, nodes
     integer, dimension(:), allocatable :: non_halo2_elements
@@ -202,9 +201,6 @@ contains
     ! the new element halos are recreated from the new nodal halo without
     ! using those of the input positions%mesh
     mesh = positions%mesh
-    if (.not. size(save_halos)/=2) then
-      FLAbort("In strip_l2_halo: halo2 is already stripped?")
-    end if
     ! since mesh is a copy of positons%mesh, we can change mesh%halos
     ! without changing positions%mesh%halos
     allocate(mesh%halos(1))
@@ -1244,7 +1240,7 @@ contains
       ! Set their values
       call set_boundary_conditions_values(states)
 
-      if((.not. final_adapt_iteration) .or. isparallel()) then
+      if(((.not. final_adapt_iteration) .or. isparallel())) then
         ! If there are remaining adapt iterations, or we will be calling
         ! sam_drive or zoltan_drive, insert the old metric into interpolate_states(1) and a
         ! new metric into states(1), for interpolation
@@ -1261,9 +1257,9 @@ contains
 
       ! Interpolate fields
       if(associated(node_ownership)) then
-        call interpolate(interpolate_states, states, map = node_ownership, only_owned=.true.)
+        call interpolate(interpolate_states, states, map = node_ownership, only_owned=.true., lock_all_nodes = lock_all_nodes)
       else
-        call interpolate(interpolate_states, states, only_owned=.true.)
+        call interpolate(interpolate_states, states, only_owned=.true., lock_all_nodes = lock_all_nodes)
       end if
 
       ! Deallocate the old fields used for interpolation, referenced in
@@ -1468,7 +1464,7 @@ contains
     assert(.not. has_tensor_field(old_state, metric%name))
     call insert(old_state, metric, metric%name)
 
-    call allocate(new_metric, new_mesh, metric%name)
+    call allocate(new_metric, new_mesh, metric%name,field_type=metric%field_type)
     assert(.not. has_tensor_field(new_state, new_metric%name))
     call insert(new_state, new_metric, new_metric%name)
 
