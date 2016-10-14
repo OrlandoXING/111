@@ -1942,7 +1942,6 @@ contains
        end if
        
     end do bcloop
-    
   end subroutine apply_dirichlet_conditions_scalar
 
   subroutine apply_dirichlet_conditions_scalar_lumped(lhs, rhs, field, dt)
@@ -2064,7 +2063,6 @@ contains
        end do bcloop
      
      end do field_loop
-
   end subroutine apply_dirichlet_conditions_scalars_petsc_csr
 
   subroutine apply_dirichlet_conditions_vector(matrix, rhs, field, dt)

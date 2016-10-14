@@ -210,7 +210,6 @@ program Darcy_IMPES
    ewrite(1,*) "***********************"    
    ewrite(1,*) "* Fluidity-DarcyIMPES *"
    ewrite(1,*) "***********************"
-
 #ifdef HAVE_ZOLTAN
    ierrz = Zoltan_Initialize(ver)  
    assert(ierrz == ZOLTAN_OK)
@@ -422,7 +421,6 @@ program Darcy_IMPES
          exit timestep_loop
       
       end if
-
       ewrite(1, *) "********************"
       ewrite(1, *) "*** NEW TIMESTEP ***"
       ewrite(1, *) "********************"
@@ -1517,15 +1515,7 @@ contains
       ! calculate the Mobile saturations if MIM is used
       if (di%MIM_options%have_MIM_phase) call darcy_trans_solve_MIM_saturations_and_mass_transfer_coefficient(di)
       !***********end*******lcai****************************
-      
-      call leaching_prog_sfield_subcycle_initialize(di)
-      if (di%lcsub%have_leach_subcycle) then 
-        call calculate_leach_prog_sfield_subcycle_terms(di)
-        !call darcy_trans_leaching_sub_copy_to_iterated(di)       
-        call darcy_trans_leaching_sub_copy_to_old(di)
-      end if
-
-      !******************LCai******Leaching chemical model***********************!
+     !******************LCai******Leaching chemical model***********************!
 
          if (di%MIM_options%have_MIM_phase) then
             sfield_loop: do f = 1, size(di%generic_prog_sfield)
@@ -1535,6 +1525,14 @@ contains
                end if
             end do sfield_loop
          end if
+         
+       
+      call leaching_prog_sfield_subcycle_initialize(di)
+      if (di%lcsub%have_leach_subcycle) then 
+        call calculate_leach_prog_sfield_subcycle_terms(di)
+        !call darcy_trans_leaching_sub_copy_to_iterated(di)       
+        call darcy_trans_leaching_sub_copy_to_old(di)
+      end if
          ! **********Lcai*************leaching heat transfer model************
          !calculate heat transfer before the chemistry is updated
          !calculate the leaching heat transfer sources terms for the first time step as an explicit source term
@@ -1549,7 +1547,6 @@ contains
            call calculate_leaching_chemical_model(di)
          end if
       !*******************Finish*LCai************************************!
-      
       ewrite(1,*) 'Finished initialising Darcy IMPES data'
       
    end subroutine darcy_impes_initialise

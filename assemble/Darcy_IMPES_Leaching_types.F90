@@ -32,14 +32,36 @@ module darcy_impes_leaching_types
   type arrhenius_rate_constant_type
      type(scalar_field), pointer :: A !prefactor of the reaction
      real :: ae !activation energy
+     real :: second_ae  !the second ae according to the change of the dissolution mechanics
      real :: gc !gas constant
      type(bulk_fluid_type), dimension(:), allocatable :: bulk
   end type arrhenius_rate_constant_type
   
-  
+  type leaching_bio_ferrous_oxi
+     logical :: ifbio = .false.
+     type(scalar_field_pointer), dimension(:), pointer ::  phi_ore => null()
+     type(scalar_field_pointer), dimension(:), pointer ::  phi_l => null()
+     type(scalar_field_pointer), dimension(:), pointer ::  miu => null()
+     type(scalar_field_pointer), dimension(:), pointer :: phi_l_src => null()
+     type(scalar_field) :: phi_l_src_t
+     type(scalar_field) :: dcdt
+     type(scalar_field), pointer :: cl => null()
+     type(scalar_field), pointer :: cfe2 => null()
+     real, dimension(:), allocatable  :: phi_max
+     real :: Y
+     real,dimension(:), allocatable  :: k1
+     real,dimension(:), allocatable  :: k2
+     real,dimension(:), allocatable  :: k_death
+     real,dimension(:), allocatable  :: miu_max
+     real,dimension(:), allocatable  :: T_shift
+     real :: kmo
+     real :: kmfe2
+  end type leaching_bio_ferrous_oxi
+    
   type leaching_arrhenius_reaction_type
      type(scalar_field), pointer :: dcdt => null() !the change rate of concentration per volume of heap
      type(arrhenius_rate_constant_type):: ak
+     type(leaching_bio_ferrous_oxi):: bio
   end type leaching_arrhenius_reaction_type
   
   type leaching_reaction_cap_type
@@ -59,6 +81,8 @@ module darcy_impes_leaching_types
      integer :: ndata !the number of the experiment data points used to do spline interpolation
      real, dimension(:), allocatable :: exp_ex, exp_exrk !experiment data
      type(leaching_reaction_cap_type):: cap
+     logical :: check_Eh= .false.
+     real :: max_Eh !the maximun Eh to limit the dissolution
   end type leaching_semi_empirical_model_type
   
   !jarocite precipitation
@@ -66,6 +90,7 @@ module darcy_impes_leaching_types
      !the name of the scalar field used to calculate pH and Fe3 concentration
      character(len=FIELD_NAME_LEN) :: H_name 
      character(len=FIELD_NAME_LEN) :: Fe3_name
+     real :: rate
      type(scalar_field), pointer :: dcdt => null() !the change rate of concentration of Fe3+ per volume of heap
      type(scalar_field), pointer :: js => null() !the molar concentration of jarosite per volume of heap
   end type leaching_internal_algorithm_jaro
@@ -86,6 +111,8 @@ module darcy_impes_leaching_types
      logical :: bio = .false. !Wether the S0 dissolution is under bacteria activity
      real :: ps  !the persentage of the S0 to dissolve when the leaching is non-bio
   end type leaching_internal_algorithm_sulf
+  
+  
 
   type leaching_internal_algorithm_gangue
      !name of H+ used to dissolve gangue mineral
@@ -148,8 +175,24 @@ module darcy_impes_leaching_types
   type solution_phase_heat_src_type
      real :: Enthalpy !the enthalpy of the reaction
      type(scalar_field), pointer :: sr_src !scalar field of solution reaction rate (mole/m^3_heap)
-  end type solution_phase_heat_src_type 
- 
+  end type solution_phase_heat_src_type
+  
+  type integer_array_type
+    integer,  dimension(:), allocatable :: list
+  end type integer_array_type
+   
+  
+  type rock_surface_temperature_src_type
+      logical :: have_rtss=.false. !if have rock surface temperature source
+      type(integer_array_type),  dimension(:), allocatable :: ids !the boundary ids
+      integer,  dimension(:,:), allocatable :: sele !the surface numbering of the boundary id, the first column is the source number, and the second column is the surface number
+      integer,  dimension(:), allocatable :: transfer_type !the heat transfer type, 1 is convection, 2 is radiation
+      real, dimension(:), allocatable :: coefficient !the heat transfer coefficient or emissivity
+      real, dimension(:), allocatable :: ref_t !the reference temperature
+      real, dimension(:), allocatable :: A !the surface area 
+      type(scalar_field_pointer), dimension(:), pointer :: src=> null() !the surface heat transfer source
+   end type rock_surface_temperature_src_type
+  
   type leach_heat_transfer_model
      logical:: have_ht = .false.
      logical:: heat_transfer_single = .false.
@@ -169,6 +212,7 @@ module darcy_impes_leaching_types
      type(scalar_field_pointer), dimension(:), pointer :: two_phase_src_liquid => null() !liquid temperature heat transfer term
       type(mineral_dissolution_heat_src_type), dimension(:), allocatable :: rock_md_src !mineral dissolution heat transfer sources
      type(solution_phase_heat_src_type), dimension(:), allocatable :: liquid_sr_src !solution phase reactions heat transfer sources
+     type(rock_surface_temperature_src_type) :: rtss
   end type leach_heat_transfer_model
 
   type leach_wetting_efficiency_type
@@ -186,6 +230,7 @@ module darcy_impes_leaching_types
     type(leaching_solution_phase_type) :: sol 
     type(leach_heat_transfer_model)::ht
     type(leach_wetting_efficiency_type) :: wet_eff
+    type(scalar_field), pointer :: Eh
   end type leach_chemical_type
  
   type leach_chemical_prog_sfield_subcycling
